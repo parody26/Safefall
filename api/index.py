@@ -107,9 +107,17 @@ class handler(BaseHTTPRequestHandler):
 
     def _normalize_path(self) -> str:
         parsed = urlparse(self.path)
+        query = parse_qs(parsed.query)
+        if "__path" in query:
+            return query["__path"][0].rstrip("/")
+
+        for h in ("x-matched-path", "x-vercel-matched-path", "x-forwarded-uri"):
+            val = self.headers.get(h)
+            if val and val != "/api/index.py":
+                return urlparse(val).path.rstrip("/")
+
         path = parsed.path.rstrip("/")
-        # Handle vercel rewrites where path might be /api/... or /api/v1/...
-        if not path:
+        if not path or path == "/api/index.py":
             return "/"
         return path
 
