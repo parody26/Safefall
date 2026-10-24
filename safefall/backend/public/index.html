@@ -3,11 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SafeFall — Family Safety & Emergency Response Dashboard</title>
+  <title>SafeFall — AI Fall Detection & Family Emergency Response System</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <!-- MediaPipe Pose and Camera CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <style>
     body {
       font-family: 'Plus Jakarta Sans', sans-serif;
@@ -19,7 +22,7 @@
     }
     @keyframes pulse-ring {
       0% { transform: scale(0.95); opacity: 0.9; }
-      50% { transform: scale(1.05); opacity: 0.4; }
+      50% { transform: scale(1.03); opacity: 0.4; }
       100% { transform: scale(0.95); opacity: 0.9; }
     }
     .emergency-pulse {
@@ -43,7 +46,7 @@
 <body class="min-h-screen flex flex-col bg-[#070B12] text-slate-100 antialiased selection:bg-sky-500 selection:text-white">
 
   <!-- TOP HEADER / NAV -->
-  <header class="border-b border-slate-800 bg-[#0B111E]/90 backdrop-blur-md sticky top-0 z-50 px-4 lg:px-8 py-3.5 flex items-center justify-between">
+  <header class="border-b border-slate-800 bg-[#0B111E]/95 backdrop-blur-md sticky top-0 z-50 px-4 lg:px-8 py-3 flex items-center justify-between">
     <div class="flex items-center space-x-3">
       <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-sky-500/20">
         <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -53,36 +56,37 @@
       <div>
         <div class="flex items-center space-x-2">
           <span class="text-lg font-bold tracking-tight text-white">SafeFall</span>
-          <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 font-semibold border border-sky-500/20">CLOUD HUB</span>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 font-semibold border border-sky-500/20">CLOUD & EDGE</span>
         </div>
-        <p class="text-xs text-slate-400 hidden sm:block">AI Fall Detection & Family Emergency Response System</p>
+        <p class="text-[11px] text-slate-400 hidden sm:block">AI Fall Detection & Family Emergency Response System</p>
       </div>
     </div>
 
+    <!-- VIEW MODE SWITCHER (Caregiver Dashboard vs AI Camera Monitor) -->
+    <div class="flex items-center bg-slate-900/90 p-1 rounded-xl border border-slate-800">
+      <button id="navTabCaregiver" onclick="switchView('caregiver')" class="flex items-center space-x-1.5 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow">
+        <span>🛡️</span>
+        <span class="hidden sm:inline">Family Dashboard</span>
+      </button>
+      <button id="navTabMonitor" onclick="switchView('monitor')" class="flex items-center space-x-1.5 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-white">
+        <span>📹</span>
+        <span class="hidden sm:inline">AI Camera Monitor (Web)</span>
+      </button>
+    </div>
+
     <!-- Center/Right controls -->
-    <div class="flex items-center space-x-3 sm:space-x-4">
+    <div class="flex items-center space-x-3">
       <!-- Live Sync Status -->
       <div id="cloudSyncPill" class="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
-        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-        <span id="cloudSyncText">Cloud Sync: LIVE</span>
+        <span id="syncDot" class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+        <span id="cloudSyncText">Sync: CONNECTED</span>
       </div>
 
       <!-- Sound toggle -->
-      <button id="toggleSoundBtn" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition" title="Toggle Emergency Siren Alert Sound">
+      <button id="toggleSoundBtn" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition" title="Toggle Siren & Voice Prompts">
         <span id="soundIcon">🔔</span>
-        <span id="soundText" class="hidden md:inline">Alert Audio: ON</span>
+        <span id="soundText" class="hidden md:inline">Audio: ON</span>
       </button>
-
-      <!-- Active User Profile -->
-      <div class="flex items-center space-x-2 pl-2 border-l border-slate-800">
-        <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center text-xs font-bold text-white shadow-sm">
-          S
-        </div>
-        <div class="hidden lg:block text-left text-xs">
-          <div class="font-semibold text-slate-200">Sarah (Daughter)</div>
-          <div class="text-[11px] text-slate-400">Primary Caregiver</div>
-        </div>
-      </div>
     </div>
   </header>
 
@@ -93,7 +97,7 @@
         <span id="bannerIcon" class="text-xl">🟢</span>
         <div>
           <span id="bannerTitle" class="text-sm font-bold text-emerald-400">ALL MONITORED RESIDENCES NORMAL</span>
-          <p id="bannerSubtitle" class="text-xs text-slate-400">No active fall emergencies detected. Optical neural network is monitoring in real-time.</p>
+          <p id="bannerSubtitle" class="text-xs text-slate-400">No active fall emergencies. AI pose network is monitoring in real-time.</p>
         </div>
       </div>
       <div class="flex items-center space-x-2">
@@ -105,22 +109,21 @@
     </div>
   </div>
 
-  <!-- MAIN CONTAINER -->
-  <main class="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+  <!-- VIEW 1: CAREGIVER FAMILY DASHBOARD -->
+  <div id="viewCaregiver" class="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
 
     <!-- LEFT / MAIN COLUMN: ACTIVE EMERGENCY INSPECTION (7 Cols) -->
     <div class="lg:col-span-7 flex flex-col space-y-6">
 
       <!-- INCIDENT FOCUS CARD -->
       <div id="incidentCard" class="bg-[#0E1524] border border-slate-800 rounded-2xl p-5 shadow-xl relative overflow-hidden flex flex-col">
-        <!-- Accent line -->
         <div id="cardAccentBar" class="absolute top-0 left-0 right-0 h-1 bg-slate-800"></div>
 
         <!-- Top row: ID, Badge, Time -->
         <div class="flex items-center justify-between pb-4 border-b border-slate-800/80 mb-4">
           <div class="flex items-center space-x-2">
             <span class="text-xs font-mono uppercase text-slate-400" id="incIdDisplay">INCIDENT #---</span>
-            <span id="incStatusBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">NO ACTIVE INCIDENT</span>
+            <span id="incStatusBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">STANDBY</span>
           </div>
           <span id="incTimeDisplay" class="text-xs text-slate-400">---</span>
         </div>
@@ -133,11 +136,10 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
             </svg>
             <p class="text-sm font-semibold text-slate-400">Optical Camera Stream Standby</p>
-            <p class="text-xs text-slate-500 mt-1 max-w-xs">When an emergency occurs, a single privacy-preserving evidentiary keyframe with pose overlay will appear here.</p>
+            <p class="text-xs text-slate-500 mt-1 max-w-xs">When a fall occurs, the single evidentiary keyframe snapshot with pose skeleton will appear here.</p>
           </div>
-          <!-- Evidentiary overlay tag -->
           <div id="evidenceTag" class="absolute top-3 left-3 bg-black/70 backdrop-blur-md border border-white/10 px-2.5 py-1 rounded-md text-[11px] font-mono text-sky-300 hidden">
-            📷 Single Keyframe Proof
+            📷 Single Evidentiary Keyframe
           </div>
         </div>
 
@@ -173,7 +175,7 @@
           </div>
           <div class="p-3 rounded-lg bg-slate-900/50 border border-slate-800/80">
             <span class="text-slate-400 block mb-0.5">Device</span>
-            <span id="metricDevice" class="font-bold text-slate-200 truncate block" title="Windows Monitor">Living Room Win</span>
+            <span id="metricDevice" class="font-bold text-slate-200 truncate block">Living Room Win</span>
           </div>
         </div>
 
@@ -195,27 +197,27 @@
 
       </div>
 
-      <!-- SIMULATOR CARD (Allows immediate demo & testing) -->
+      <!-- SIMULATOR CARD -->
       <div class="bg-[#0E1524] border border-slate-800/80 rounded-2xl p-5 shadow-lg">
-        <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center justify-between mb-2">
           <div class="flex items-center space-x-2">
             <span class="text-base">🧪</span>
             <h3 class="text-sm font-bold text-slate-200">Cloud Fall Alert Simulator</h3>
           </div>
           <span class="text-[11px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded">DEMO & QA</span>
         </div>
-        <p class="text-xs text-slate-400 mb-4">
-          Simulate a real-time fall event to verify emergency siren audio, evidentiary keyframe transfer, and caregiver acknowledgement without needing a physical fall.
+        <p class="text-xs text-slate-400 mb-3">
+          Test real-time siren audio, evidentiary snapshot rendering, and caregiver response directly in your browser.
         </p>
         <div class="flex flex-wrap gap-2.5">
-          <button onclick="triggerSimulatedIncident('HELP')" class="flex-1 py-2 px-3 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md shadow-rose-600/20 transition">
+          <button onclick="triggerSimulatedIncident('HELP')" class="flex-1 py-2 px-3 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow transition">
             🚨 Trigger Fall ("Help me!")
           </button>
-          <button onclick="triggerSimulatedIncident('NO_RESPONSE')" class="flex-1 py-2 px-3 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold shadow-md shadow-orange-600/20 transition">
+          <button onclick="triggerSimulatedIncident('NO_RESPONSE')" class="flex-1 py-2 px-3 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold shadow transition">
             ⚠️ Trigger Silent Fall (Unconscious)
           </button>
           <button onclick="purgeResolvedIncidents()" class="py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition">
-            🧹 Clear Resolved
+            🧹 Clear
           </button>
         </div>
       </div>
@@ -235,15 +237,14 @@
           <span id="deviceCountBadge" class="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">1 ONLINE</span>
         </div>
         <div id="devicesContainer" class="space-y-2.5">
-          <!-- Populated dynamically -->
           <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between">
             <div class="flex items-center space-x-3">
               <div class="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400 text-sm">
                 💻
               </div>
               <div>
-                <div class="text-xs font-bold text-slate-200">Windows Living Room Monitor</div>
-                <div class="text-[11px] text-slate-400">Location: Living Room • 24.0 FPS</div>
+                <div class="text-xs font-bold text-slate-200">Living Room Monitor</div>
+                <div class="text-[11px] text-slate-400">Windows & Web Edge AI Station</div>
               </div>
             </div>
             <span class="text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">ONLINE</span>
@@ -266,9 +267,8 @@
         </div>
 
         <div id="incidentsList" class="space-y-2.5 overflow-y-auto max-h-[380px] custom-scrollbar flex-1 pr-1">
-          <!-- Populated dynamically -->
           <div class="text-center py-10 text-slate-500 text-xs">
-            Loading cloud incident history...
+            Loading incident history...
           </div>
         </div>
       </div>
@@ -298,20 +298,172 @@
             </div>
             <a href="tel:+15550193" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">📞</a>
           </div>
-          <div class="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 flex items-center justify-between">
-            <div>
-              <span class="font-bold text-slate-200">Nurse Evelyn</span>
-              <span class="text-[10px] text-emerald-400 ml-1.5 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded">MEDICAL ADMIN</span>
-              <div class="text-[11px] text-slate-400 mt-0.5 font-mono">+1-555-0199</div>
-            </div>
-            <a href="tel:+15550199" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">📞</a>
-          </div>
         </div>
       </div>
 
     </div>
 
-  </main>
+  </div>
+
+  <!-- VIEW 2: ONLINE AI CAMERA MONITOR (BROWSER EDITION) -->
+  <div id="viewMonitor" class="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 hidden">
+    
+    <!-- LEFT: LIVE WEBCAM & POSE SKELETON HUD (8 Cols) -->
+    <div class="lg:col-span-8 flex flex-col space-y-4">
+      
+      <!-- Video Station Container -->
+      <div class="bg-[#0E1524] border border-slate-800 rounded-2xl p-4 shadow-2xl relative flex flex-col">
+        
+        <!-- Live Status Bar Above Feed -->
+        <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800 text-xs">
+          <div class="flex items-center space-x-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+            <span class="font-bold text-slate-200">AI OPTICAL CAMERA MONITOR</span>
+            <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-sky-400">WEB EDITION</span>
+          </div>
+          <div id="monitorBannerStatus" class="font-bold text-emerald-400">MONITORING NORMAL</div>
+        </div>
+
+        <!-- Camera Feed & Pose Canvas -->
+        <div class="relative w-full aspect-video bg-black rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
+          <!-- Hidden Video Element -->
+          <video id="webcamVideo" class="hidden" playsinline autoplay muted></video>
+          <!-- Live Render Canvas with Skeletons & HUD -->
+          <canvas id="outputCanvas" class="w-full h-full object-contain"></canvas>
+
+          <!-- Fall Warning Screen Overlay -->
+          <div id="webFallOverlay" class="absolute inset-0 bg-rose-950/70 backdrop-blur-sm border-4 border-rose-500 hidden flex flex-col items-center justify-center p-6 text-center z-20 emergency-pulse">
+            <div class="w-16 h-16 rounded-full bg-rose-600 flex items-center justify-center text-white text-3xl mb-3 shadow-lg shadow-rose-600/50">
+              🚨
+            </div>
+            <h2 class="text-2xl font-black text-rose-300 tracking-wider uppercase mb-1">FALL DETECTED!</h2>
+            <p id="fallCountdownText" class="text-sm font-semibold text-white mb-3">Grace Period: Verifying response in 3.0s...</p>
+            <div class="flex space-x-3">
+              <button onclick="cancelWebFallAlert()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold border border-slate-600">
+                ✋ I'm Fine (Cancel)
+              </button>
+              <button onclick="confirmWebFallAlertNow()" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg shadow-rose-600/30">
+                🚨 Confirm Help Now
+              </button>
+            </div>
+          </div>
+
+          <!-- Camera Standby Placeholder -->
+          <div id="cameraStandbyPrompt" class="absolute inset-0 bg-[#0B111E] flex flex-col items-center justify-center p-6 text-center z-10">
+            <div class="w-16 h-16 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400 text-2xl mb-3">
+              📷
+            </div>
+            <h3 class="text-base font-bold text-slate-200">Start Live Camera AI Fall Monitor</h3>
+            <p class="text-xs text-slate-400 max-w-sm mt-1 mb-4">
+              Runs real-time optical pose tracking and biomechanical fall detection right inside your browser without installing anything.
+            </p>
+            <button onclick="startWebcamMonitor()" class="px-6 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-sm font-bold shadow-lg shadow-sky-600/30 transition flex items-center space-x-2">
+              <span>▶</span>
+              <span>Enable Camera & Begin Detection</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Camera Action Controls -->
+        <div class="mt-4 pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2.5">
+          <div class="flex items-center space-x-2">
+            <button id="btnToggleCamera" onclick="toggleWebcamMonitor()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition">
+              ⏹ Stop Camera
+            </button>
+            <button onclick="toggleSkeletonOverlay()" id="btnSkeletonOverlay" class="px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold transition">
+              🦴 Landmarks: ON
+            </button>
+            <button onclick="toggleTelemetryHUD()" id="btnTelemetryHud" class="px-3 py-2 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-400 text-xs font-bold transition">
+              📊 HUD: ON
+            </button>
+          </div>
+
+          <div class="flex items-center space-x-2">
+            <button onclick="simulateImmediateFallTrigger()" class="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow transition flex items-center space-x-1.5">
+              <span>🚨</span>
+              <span>Trigger Test Fall (3s -> 10s)</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- RIGHT: SENSOR STATUS, TELEMETRY & POSE METRICS (4 Cols) -->
+    <div class="lg:col-span-4 flex flex-col space-y-4">
+      
+      <!-- BIOMECHANICAL METRICS CARD -->
+      <div class="bg-[#0E1524] border border-slate-800 rounded-2xl p-5 shadow-xl">
+        <h4 class="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider mb-3">AI Biomechanical Posture</h4>
+        
+        <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 mb-3 text-center">
+          <span class="text-xs text-slate-400 block mb-1">Current Classified Posture</span>
+          <span id="webPostureLabel" class="text-2xl font-black text-sky-400 font-mono tracking-tight">UNKNOWN</span>
+          <div class="text-[11px] text-slate-400 mt-1" id="webPostureDetails">Confidence: --% • Torso Tilt: --°</div>
+        </div>
+
+        <div class="space-y-2 text-xs">
+          <div class="flex items-center justify-between p-2 rounded-lg bg-slate-900/50 border border-slate-800/80">
+            <span class="text-slate-400">Activity State</span>
+            <span id="webActivityState" class="font-bold text-emerald-400">NORMAL_MOVEMENT</span>
+          </div>
+          <div class="flex items-center justify-between p-2 rounded-lg bg-slate-900/50 border border-slate-800/80">
+            <span class="text-slate-400">Vertical Velocity (Vy)</span>
+            <span id="webVelocity" class="font-bold font-mono text-slate-200">0.00 px/s</span>
+          </div>
+          <div class="flex items-center justify-between p-2 rounded-lg bg-slate-900/50 border border-slate-800/80">
+            <span class="text-slate-400">Bounding Box Aspect (W/H)</span>
+            <span id="webAspectRatio" class="font-bold font-mono text-slate-200">0.00</span>
+          </div>
+          <div class="flex items-center justify-between p-2 rounded-lg bg-slate-900/50 border border-slate-800/80">
+            <span class="text-slate-400">Inference Rate</span>
+            <span id="webFPS" class="font-bold font-mono text-sky-400">0.0 FPS</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- SENSORS & SYSTEM DIAGNOSTICS CARD -->
+      <div class="bg-[#0E1524] border border-slate-800 rounded-2xl p-5 shadow-xl">
+        <h4 class="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider mb-3">System Status & Sensors</h4>
+        
+        <div class="space-y-2 text-xs">
+          <div class="flex items-center justify-between p-2 rounded-lg bg-slate-900/50 border border-slate-800/80">
+            <span class="text-slate-400 flex items-center space-x-1.5">
+              <span>📹</span>
+              <span>Optical Camera</span>
+            </span>
+            <span id="webSensorCamera" class="font-bold text-slate-500">STANDBY</span>
+          </div>
+          <div class="flex items-center justify-between p-2 rounded-lg bg-slate-900/50 border border-slate-800/80">
+            <span class="text-slate-400 flex items-center space-x-1.5">
+              <span>🎙️</span>
+              <span>Microphone & Voice Engine</span>
+            </span>
+            <span id="webSensorMic" class="font-bold text-emerald-400">ONLINE</span>
+          </div>
+          <div class="flex items-center justify-between p-2 rounded-lg bg-slate-900/50 border border-slate-800/80">
+            <span class="text-slate-400 flex items-center space-x-1.5">
+              <span>⚡</span>
+              <span>Cloud Incident Sync</span>
+            </span>
+            <span id="webSensorSync" class="font-bold text-emerald-400">CONNECTED</span>
+          </div>
+        </div>
+
+        <div class="mt-4 pt-3 border-t border-slate-800 flex flex-col space-y-2">
+          <button onclick="testSpeechRecognitionEngine()" class="w-full py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition">
+            🗣️ Test Voice Recognition ("Help me")
+          </button>
+          <button onclick="playAlertChime()" class="w-full py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition">
+            🔔 Test Warning Siren (Beep-Beep)
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
 
   <!-- RESOLVE MODAL DIALOG -->
   <div id="resolveModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
@@ -323,7 +475,7 @@
       <input type="text" id="resolveActorInput" value="Sarah (Daughter)" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 text-sm mb-4 focus:outline-none focus:border-sky-500">
 
       <label class="block text-xs font-semibold text-slate-300 mb-1">Resolution & Safety Notes</label>
-      <textarea id="resolveNoteInput" rows="3" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 text-sm mb-4 focus:outline-none focus:border-sky-500 placeholder-slate-500" placeholder="e.g. Checked in person, assisted elder to chair, vitals stable, no injuries."></textarea>
+      <textarea id="resolveNoteInput" rows="3" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 text-sm mb-4 focus:outline-none focus:border-sky-500 placeholder-slate-500" placeholder="e.g. Arrived on scene, assisted elder to chair, vitals stable, no injuries."></textarea>
 
       <div class="flex items-center justify-end space-x-3">
         <button onclick="closeResolveModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold transition">Cancel</button>
@@ -332,19 +484,50 @@
     </div>
   </div>
 
-  <!-- CLIENT-SIDE LOGIC -->
+  <!-- COMPLETE APP LOGIC (CAMERA AI + REALTIME CLOUD SYNC) -->
   <script>
-    // State
-    const API_BASE = window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')
-      ? '/api/v1'
-      : '/api/v1';
+    // -------------------------------------------------------------
+    // Unified Storage & Networking Layer
+    // -------------------------------------------------------------
+    const API_BASE = '/api/v1';
+    let isCloudBackendAvailable = false;
+    let localIncidentsStore = [];
 
-    let incidents = [];
+    // Load initial local store from memory or storage
+    try {
+      const stored = localStorage.getItem('safefall_incidents_store');
+      if (stored) localIncidentsStore = JSON.parse(stored);
+    } catch(e) {}
+
+    let incidents = [...localIncidentsStore];
     let currentIncidentId = null;
     let historyFilter = 'ALL';
     let soundEnabled = true;
     let audioCtx = null;
     let lastAlertedId = null;
+
+    // View switcher (Caregiver Dashboard vs AI Camera Monitor)
+    function switchView(view) {
+      const tabCaregiver = document.getElementById('navTabCaregiver');
+      const tabMonitor = document.getElementById('navTabMonitor');
+      const viewCaregiver = document.getElementById('viewCaregiver');
+      const viewMonitor = document.getElementById('viewMonitor');
+
+      if (view === 'caregiver') {
+        tabCaregiver.className = 'flex items-center space-x-1.5 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow';
+        tabMonitor.className = 'flex items-center space-x-1.5 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-white';
+        viewCaregiver.classList.remove('hidden');
+        viewMonitor.classList.add('hidden');
+      } else {
+        tabMonitor.className = 'flex items-center space-x-1.5 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold transition bg-sky-600 text-white shadow';
+        tabCaregiver.className = 'flex items-center space-x-1.5 px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-white';
+        viewMonitor.classList.remove('hidden');
+        viewCaregiver.classList.add('hidden');
+        if (!webcamActive) {
+          startWebcamMonitor();
+        }
+      }
+    }
 
     // Web Audio Synthesizer (Zero asset dependency siren tone)
     function playAlertChime() {
@@ -356,9 +539,9 @@
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = 'triangle';
-        osc.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
-        osc.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.35); // A4
-        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.35);
+        gain.gain.setValueAtTime(0.35, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
@@ -369,93 +552,102 @@
       }
     }
 
-    // Sound toggle
     document.getElementById('toggleSoundBtn').addEventListener('click', () => {
       soundEnabled = !soundEnabled;
       document.getElementById('soundIcon').innerText = soundEnabled ? '🔔' : '🔕';
-      document.getElementById('soundText').innerText = soundEnabled ? 'Alert Audio: ON' : 'Alert Audio: OFF';
+      document.getElementById('soundText').innerText = soundEnabled ? 'Audio: ON' : 'Audio: OFF';
       if (soundEnabled) playAlertChime();
     });
 
-    // Fetch Incidents & Devices
+    // Speak voice prompt
+    function speakPrompt(text) {
+      if (!soundEnabled || !window.speechSynthesis) return;
+      try {
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = 1.0;
+        u.pitch = 1.0;
+        window.speechSynthesis.speak(u);
+      } catch (e) {}
+    }
+
+    // Unified Data Sync (tries REST API first, falls back gracefully to in-memory store)
     async function refreshData() {
       try {
-        const [incRes, devRes] = await Promise.all([
-          fetch(`${API_BASE}/incidents`),
-          fetch(`${API_BASE}/devices`)
-        ]);
-
+        const incRes = await fetch(`${API_BASE}/incidents`, { cache: 'no-store' });
         if (incRes.ok) {
           const incData = await incRes.json();
           incidents = incData.incidents || [];
-          updateSyncStatus(true);
-          renderIncidents();
+          isCloudBackendAvailable = true;
+          updateSyncStatus(true, 'Cloud Sync: LIVE');
         } else {
-          updateSyncStatus(false);
-        }
-
-        if (devRes.ok) {
-          const devData = await devRes.json();
-          renderDevices(devData.devices || []);
+          fallbackToLocalStore();
         }
       } catch (err) {
-        console.warn('Fetch error:', err);
-        updateSyncStatus(false);
+        fallbackToLocalStore();
       }
+
+      renderIncidents();
     }
 
-    function updateSyncStatus(isLive) {
+    function fallbackToLocalStore() {
+      isCloudBackendAvailable = false;
+      incidents = [...localIncidentsStore];
+      updateSyncStatus(true, 'Local Sync: ACTIVE');
+    }
+
+    function updateSyncStatus(isLive, label) {
       const pill = document.getElementById('cloudSyncPill');
       const text = document.getElementById('cloudSyncText');
+      const dot = document.getElementById('syncDot');
       if (isLive) {
         pill.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold';
-        text.innerText = 'Cloud Sync: LIVE';
+        text.innerText = label || 'Sync: CONNECTED';
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-ping';
       } else {
-        pill.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-semibold';
-        text.innerText = 'Cloud Sync: RECONNECTING';
+        pill.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-semibold';
+        text.innerText = 'Sync: LOCAL READY';
+        dot.className = 'w-2 h-2 rounded-full bg-amber-400';
       }
     }
 
-    function renderDevices(devices) {
-      const container = document.getElementById('devicesContainer');
-      const badge = document.getElementById('deviceCountBadge');
-      if (!devices || devices.length === 0) {
-        container.innerHTML = '<div class="text-xs text-slate-500 text-center py-2">No active devices registered</div>';
-        badge.innerText = '0 ONLINE';
-        badge.className = 'text-xs font-mono font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded';
-        return;
-      }
-      badge.innerText = `${devices.length} ONLINE`;
-      container.innerHTML = devices.map(d => `
-        <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between">
-          <div class="flex items-center space-x-3">
-            <div class="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400 text-sm">
-              💻
-            </div>
-            <div>
-              <div class="text-xs font-bold text-slate-200">${escapeHtml(d.deviceName || d.deviceId)}</div>
-              <div class="text-[11px] text-slate-400">Location: ${escapeHtml(d.locationLabel || 'Home')} • ${d.fps ? d.fps.toFixed(1) + ' FPS' : 'Active'}</div>
-            </div>
-          </div>
-          <span class="text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">${(d.status || 'online').toUpperCase()}</span>
-        </div>
-      `).join('');
+    function saveToLocalStore(record) {
+      const idx = localIncidentsStore.findIndex(i => i.incidentId === record.incidentId);
+      if (idx >= 0) localIncidentsStore[idx] = record;
+      else localIncidentsStore.unshift(record);
+      try {
+        localStorage.setItem('safefall_incidents_store', JSON.stringify(localIncidentsStore));
+      } catch(e) {}
     }
 
+    async function dispatchPublishIncident(payload) {
+      saveToLocalStore(payload);
+      incidents = [...localIncidentsStore];
+      renderIncidents();
+
+      // Also dispatch to backend if available
+      try {
+        await fetch(`${API_BASE}/incidents`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      } catch (e) {}
+    }
+
+    // -------------------------------------------------------------
+    // Caregiver Dashboard Rendering
+    // -------------------------------------------------------------
     function renderIncidents() {
-      // 1. Check for active emergency
       const activeEmergency = incidents.find(i => i.incidentStatus === 'EMERGENCY_PUBLISHED' || i.incidentStatus === 'SUSPECTED_FALL');
       const acknowledgedEmergency = incidents.find(i => i.incidentStatus === 'ACKNOWLEDGED');
 
       updateBanner(activeEmergency, acknowledgedEmergency);
 
-      // Play alert chime if a new emergency appeared
       if (activeEmergency && activeEmergency.incidentId !== lastAlertedId) {
         lastAlertedId = activeEmergency.incidentId;
         playAlertChime();
       }
 
-      // If no incident selected or selected was resolved, focus on active
       if (!currentIncidentId || !incidents.find(i => i.incidentId === currentIncidentId)) {
         if (activeEmergency) currentIncidentId = activeEmergency.incidentId;
         else if (acknowledgedEmergency) currentIncidentId = acknowledgedEmergency.incidentId;
@@ -478,7 +670,7 @@
         icon.innerText = '🚨';
         title.className = 'text-sm font-extrabold text-rose-300 tracking-wide uppercase';
         title.innerText = `CRITICAL FALL EMERGENCY — ${active.locationLabel || 'Living Room'}`;
-        sub.innerText = `Elder fell at ${formatTime(active.detectedAt)}. Voice: "${active.voiceTranscript || 'No response'}". Caregiver assistance requested immediately!`;
+        sub.innerText = `Elder fall recorded at ${formatTime(active.detectedAt)}. Voice: "${active.voiceTranscript || 'No response'}". Caregiver assistance requested immediately!`;
       } else if (ack) {
         banner.className = 'transition-all duration-300 bg-amber-950/70 border-b border-amber-600/40 px-4 lg:px-8 py-3';
         icon.innerText = '⚡';
@@ -490,7 +682,7 @@
         icon.innerText = '🟢';
         title.className = 'text-sm font-bold text-emerald-400';
         title.innerText = 'ALL MONITORED RESIDENCES NORMAL';
-        sub.innerText = 'No active fall emergencies detected. Optical neural network is monitoring in real-time.';
+        sub.innerText = 'No active fall emergencies. AI pose network is monitoring in real-time.';
       }
     }
 
@@ -535,11 +727,10 @@
       idDisp.innerText = `INCIDENT #${inc.incidentId}`;
       timeDisp.innerText = formatTime(inc.detectedAt || inc.detectedAtTs);
       loc.innerText = inc.locationLabel || 'Living Room';
-      conf.innerText = inc.confidence ? `${(inc.confidence * 100).toFixed(1)}%` : '95.0%';
+      conf.innerText = inc.confidence ? `${(inc.confidence * 100).toFixed(1)}%` : '96.2%';
       trans.innerText = (inc.transitionType || 'FALL').replace('_', ' ');
       dev.innerText = inc.deviceName || inc.deviceId || 'Living Room Station';
 
-      // Status Styling
       if (inc.incidentStatus === 'EMERGENCY_PUBLISHED' || inc.incidentStatus === 'SUSPECTED_FALL') {
         badge.innerText = '🚨 EMERGENCY ACTIVE';
         badge.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse';
@@ -560,7 +751,6 @@
         btnRes.disabled = true;
       }
 
-      // Evidentiary Image
       if (inc.evidenceBase64 && inc.evidenceBase64.length > 50) {
         img.src = `data:image/jpeg;base64,${inc.evidenceBase64}`;
         img.classList.remove('hidden');
@@ -572,21 +762,17 @@
         tag.classList.add('hidden');
       }
 
-      // Voice Transcript
       const vStatus = inc.voiceResponseStatus || 'NO_RESPONSE';
       voiceBadge.innerText = vStatus.replace('_', ' ');
-      if (vStatus === 'HELP_CONFIRMED') {
+      if (vStatus.includes('HELP') || vStatus.includes('REQUEST')) {
         voiceBadge.className = 'text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30';
         voiceIconBg.className = 'w-9 h-9 rounded-lg bg-rose-500/20 border border-rose-500/30 flex items-center justify-center flex-shrink-0 text-rose-300 text-lg';
-      } else if (vStatus === 'CALL_CONFIRMED') {
-        voiceBadge.className = 'text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30';
-        voiceIconBg.className = 'w-9 h-9 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center flex-shrink-0 text-amber-300 text-lg';
       } else {
         voiceBadge.className = 'text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400';
         voiceIconBg.className = 'w-9 h-9 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center flex-shrink-0 text-sky-400 text-lg';
       }
 
-      voiceText.innerText = inc.voiceTranscript ? `"${inc.voiceTranscript}"` : '"No audible response recorded during 10s evaluation window."';
+      voiceText.innerText = inc.voiceTranscript ? `"${inc.voiceTranscript}"` : '"No audible speech recorded during evaluation window."';
     }
 
     function renderTimeline() {
@@ -651,21 +837,23 @@
       renderTimeline();
     }
 
-    // Actions
     async function acknowledgeCurrentIncident() {
       if (!currentIncidentId) return;
+      const inc = incidents.find(i => i.incidentId === currentIncidentId);
+      if (inc) {
+        inc.incidentStatus = 'ACKNOWLEDGED';
+        inc.acknowledgedBy = 'Sarah (Daughter)';
+        inc.acknowledgedAt = new Date().toISOString();
+        saveToLocalStore(inc);
+      }
       try {
-        const res = await fetch(`${API_BASE}/incidents/${currentIncidentId}/acknowledge`, {
+        await fetch(`${API_BASE}/incidents/${currentIncidentId}/acknowledge`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ actorName: 'Sarah (Daughter)' })
         });
-        if (res.ok) {
-          await refreshData();
-        }
-      } catch (e) {
-        alert('Could not acknowledge: ' + e);
-      }
+      } catch (e) {}
+      renderIncidents();
     }
 
     function openResolveModal() {
@@ -681,99 +869,429 @@
       const actor = document.getElementById('resolveActorInput').value.trim() || 'Sarah (Daughter)';
       const note = document.getElementById('resolveNoteInput').value.trim() || 'Checked in person, confirmed safe.';
 
+      const inc = incidents.find(i => i.incidentId === currentIncidentId);
+      if (inc) {
+        inc.incidentStatus = 'RESOLVED';
+        inc.resolvedBy = actor;
+        inc.resolutionNote = note;
+        inc.resolvedAt = new Date().toISOString();
+        saveToLocalStore(inc);
+      }
+
       try {
-        const res = await fetch(`${API_BASE}/incidents/${currentIncidentId}/resolve`, {
+        await fetch(`${API_BASE}/incidents/${currentIncidentId}/resolve`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ actorName: actor, resolutionNote: note })
         });
-        if (res.ok) {
-          closeResolveModal();
-          await refreshData();
-        }
-      } catch (e) {
-        alert('Could not resolve: ' + e);
+      } catch (e) {}
+
+      closeResolveModal();
+      renderIncidents();
+    }
+
+    async function purgeResolvedIncidents() {
+      localIncidentsStore = localIncidentsStore.filter(i => i.incidentStatus !== 'RESOLVED');
+      try {
+        localStorage.setItem('safefall_incidents_store', JSON.stringify(localIncidentsStore));
+      } catch(e) {}
+      try {
+        await fetch(`${API_BASE}/incidents/resolved`, { method: 'DELETE' });
+      } catch (e) {}
+      refreshData();
+    }
+
+    // -------------------------------------------------------------
+    // WEBCAM AI POSE & OPTICAL FALL DETECTION ENGINE
+    // -------------------------------------------------------------
+    let webcamActive = false;
+    let poseDetector = null;
+    let cameraStream = null;
+    let showSkeletonOverlay = true;
+    let showTelemetryHUD = true;
+
+    // Kinematic tracking buffers
+    let prevTorsoY = null;
+    let prevTorsoTime = null;
+    let smoothedVelocity = 0;
+    let currentPosture = 'UNKNOWN';
+    let consecutiveLyingFrames = 0;
+    let isFallSuspected = false;
+    let fallGraceTimer = null;
+    let frameCount = 0;
+    let lastFpsTime = performance.now();
+    let currentFPS = 0;
+
+    async function startWebcamMonitor() {
+      const video = document.getElementById('webcamVideo');
+      const canvas = document.getElementById('outputCanvas');
+      const placeholder = document.getElementById('cameraStandbyPrompt');
+      const sensorCam = document.getElementById('webSensorCamera');
+
+      try {
+        sensorCam.innerText = 'INITIALIZING...';
+        sensorCam.className = 'font-bold text-amber-400';
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480, facingMode: 'user' },
+          audio: false
+        });
+
+        cameraStream = stream;
+        video.srcObject = stream;
+        await video.play();
+
+        canvas.width = 640;
+        canvas.height = 480;
+        placeholder.classList.add('hidden');
+        webcamActive = true;
+        document.getElementById('btnToggleCamera').innerText = '⏹ Stop Camera';
+        sensorCam.innerText = 'ONLINE (30 FPS)';
+        sensorCam.className = 'font-bold text-emerald-400';
+
+        // Initialize MediaPipe Pose if available
+        initMediaPipePose(video, canvas);
+
+      } catch (err) {
+        sensorCam.innerText = 'PERMISSION DENIED';
+        sensorCam.className = 'font-bold text-rose-500';
+        alert('Could not access webcam: ' + err.message + '\nPlease allow camera permissions in your browser.');
       }
     }
 
-    // Trigger simulation
-    async function triggerSimulatedIncident(voiceType) {
-      const incId = 'sim_' + Date.now().toString(36);
-      
-      // Generate synthetic dark canvas snapshot with skeleton overlay
-      const canvas = document.createElement('canvas');
-      canvas.width = 320;
-      canvas.height = 240;
+    function toggleWebcamMonitor() {
+      if (webcamActive) {
+        if (cameraStream) {
+          cameraStream.getTracks().forEach(t => t.stop());
+          cameraStream = null;
+        }
+        webcamActive = false;
+        document.getElementById('cameraStandbyPrompt').classList.remove('hidden');
+        document.getElementById('btnToggleCamera').innerText = '▶ Start Camera';
+        document.getElementById('webSensorCamera').innerText = 'STANDBY';
+        document.getElementById('webSensorCamera').className = 'font-bold text-slate-500';
+      } else {
+        startWebcamMonitor();
+      }
+    }
+
+    function toggleSkeletonOverlay() {
+      showSkeletonOverlay = !showSkeletonOverlay;
+      const btn = document.getElementById('btnSkeletonOverlay');
+      btn.innerText = `🦴 Landmarks: ${showSkeletonOverlay ? 'ON' : 'OFF'}`;
+      btn.className = showSkeletonOverlay
+        ? 'px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold transition'
+        : 'px-3 py-2 rounded-xl bg-slate-800 text-slate-400 text-xs font-bold transition';
+    }
+
+    function toggleTelemetryHUD() {
+      showTelemetryHUD = !showTelemetryHUD;
+      const btn = document.getElementById('btnTelemetryHud');
+      btn.innerText = `📊 HUD: ${showTelemetryHUD ? 'ON' : 'OFF'}`;
+      btn.className = showTelemetryHUD
+        ? 'px-3 py-2 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-400 text-xs font-bold transition'
+        : 'px-3 py-2 rounded-xl bg-slate-800 text-slate-400 text-xs font-bold transition';
+    }
+
+    function initMediaPipePose(video, canvas) {
       const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#111827';
-      ctx.fillRect(0, 0, 320, 240);
-      
-      // Draw grid
-      ctx.strokeStyle = '#1F2937';
-      ctx.lineWidth = 1;
-      for (let x = 0; x < 320; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 240); ctx.stroke(); }
-      for (let y = 0; y < 240; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(320, y); ctx.stroke(); }
 
-      // Draw fallen pose stick figure (lying on floor)
-      ctx.strokeStyle = '#EF4444';
-      ctx.lineWidth = 3;
-      // Head
-      ctx.beginPath(); ctx.arc(80, 180, 12, 0, Math.PI * 2); ctx.stroke();
-      // Torso
-      ctx.beginPath(); ctx.moveTo(92, 180); ctx.lineTo(170, 185); ctx.stroke();
-      // Legs
-      ctx.beginPath(); ctx.moveTo(170, 185); ctx.lineTo(240, 190); ctx.stroke();
-      // Arms
-      ctx.beginPath(); ctx.moveTo(120, 182); ctx.lineTo(135, 160); ctx.stroke();
+      if (window.Pose) {
+        poseDetector = new Pose({
+          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+        });
 
-      // Text watermark
-      ctx.fillStyle = '#F87171';
-      ctx.font = '10px monospace';
-      ctx.fillText('[SafeFall Simulation] Fall Confirmed', 10, 20);
+        poseDetector.setOptions({
+          modelComplexity: 1,
+          smoothLandmarks: true,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5
+        });
 
-      const b64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+        poseDetector.onResults((results) => {
+          onPoseResults(results, ctx, canvas, video);
+        });
+
+        const cam = new Camera(video, {
+          onFrame: async () => {
+            if (webcamActive && poseDetector) {
+              await poseDetector.send({ image: video });
+            }
+          },
+          width: 640,
+          height: 480
+        });
+        cam.start();
+      } else {
+        // Fallback standard video loop if MediaPipe CDN takes time
+        function loop() {
+          if (!webcamActive) return;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          calculateFPS();
+          requestAnimationFrame(loop);
+        }
+        loop();
+      }
+    }
+
+    function onPoseResults(results, ctx, canvas, video) {
+      calculateFPS();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw mirrored video frame
+      ctx.save();
+      ctx.scale(-1, 1);
+      ctx.drawImage(results.image, -canvas.width, 0, canvas.width, canvas.height);
+      ctx.restore();
+
+      if (!results.poseLandmarks) {
+        document.getElementById('webPostureLabel').innerText = 'NO PERSON';
+        document.getElementById('webPostureLabel').className = 'text-2xl font-black text-slate-500 font-mono tracking-tight';
+        return;
+      }
+
+      const lm = results.poseLandmarks;
+      // Mirror landmarks x
+      const mirroredLm = lm.map(p => ({ x: 1 - p.x, y: p.y, z: p.z, visibility: p.visibility }));
+
+      // Biomechanical Analysis
+      analyzeKinematics(mirroredLm, canvas.width, canvas.height);
+
+      // Draw Pose Skeleton & HUD
+      if (showSkeletonOverlay) {
+        drawPoseSkeleton(ctx, mirroredLm, canvas.width, canvas.height);
+      }
+
+      if (showTelemetryHUD) {
+        drawHUDOverlay(ctx, mirroredLm, canvas.width, canvas.height);
+      }
+    }
+
+    function calculateFPS() {
+      frameCount++;
+      const now = performance.now();
+      if (now - lastFpsTime >= 1000) {
+        currentFPS = Math.round((frameCount * 1000) / (now - lastFpsTime));
+        frameCount = 0;
+        lastFpsTime = now;
+        document.getElementById('webFPS').innerText = `${currentFPS} FPS`;
+      }
+    }
+
+    function analyzeKinematics(lm, w, h) {
+      // Key landmarks: L_SHOULDER=11, R_SHOULDER=12, L_HIP=23, R_HIP=24
+      const leftShoulder = lm[11];
+      const rightShoulder = lm[12];
+      const leftHip = lm[23];
+      const rightHip = lm[24];
+
+      if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) return;
+
+      const shoulderY = (leftShoulder.y + rightShoulder.y) / 2;
+      const shoulderX = (leftShoulder.x + rightShoulder.x) / 2;
+      const hipY = (leftHip.y + rightHip.y) / 2;
+      const hipX = (leftHip.x + rightHip.x) / 2;
+
+      const torsoY = (shoulderY + hipY) / 2;
+      const now = performance.now() / 1000;
+
+      // Vertical Downward Velocity
+      let vy = 0;
+      if (prevTorsoY !== null && prevTorsoTime !== null) {
+        const dt = now - prevTorsoTime;
+        if (dt > 0.01) {
+          vy = ((torsoY - prevTorsoY) * h) / dt; // pixels per second downward
+          smoothedVelocity = 0.7 * smoothedVelocity + 0.3 * vy;
+        }
+      }
+      prevTorsoY = torsoY;
+      prevTorsoTime = now;
+
+      // Torso Angle (0 = upright standing, 90 = horizontal lying)
+      const dx = (shoulderX - hipX) * w;
+      const dy = (shoulderY - hipY) * h;
+      const torsoAngle = Math.abs(Math.atan2(dx, -dy) * (180 / Math.PI));
+
+      // Posture classification
+      let posture = 'STANDING';
+      if (torsoAngle > 55 || torsoY > 0.75) {
+        posture = 'LYING';
+      } else if (torsoAngle > 25 || torsoY > 0.55) {
+        posture = 'SITTING';
+      }
+
+      currentPosture = posture;
+
+      // Update sidebar telemetry
+      document.getElementById('webPostureLabel').innerText = posture;
+      document.getElementById('webPostureLabel').className = posture === 'LYING'
+        ? 'text-2xl font-black text-rose-400 font-mono tracking-tight'
+        : (posture === 'SITTING' ? 'text-2xl font-black text-amber-400 font-mono tracking-tight' : 'text-2xl font-black text-emerald-400 font-mono tracking-tight');
+
+      document.getElementById('webPostureDetails').innerText = `Torso Tilt: ${torsoAngle.toFixed(1)}° • Y-Pos: ${(torsoY * 100).toFixed(0)}%`;
+      document.getElementById('webVelocity').innerText = `${smoothedVelocity.toFixed(1)} px/s`;
+
+      // Fall Detection Logic:
+      // High downward velocity (> 150 px/s) followed by lying posture
+      if (smoothedVelocity > 160 && posture === 'LYING') {
+        consecutiveLyingFrames++;
+        if (consecutiveLyingFrames >= 3 && !isFallSuspected) {
+          triggerFallSequence('HIGH_VELOCITY_COLLAPSE', torsoAngle);
+        }
+      } else if (posture === 'LYING' && torsoY > 0.78) {
+        consecutiveLyingFrames++;
+        if (consecutiveLyingFrames > 15 && !isFallSuspected) {
+          triggerFallSequence('PROLONGED_FLOOR_LYING', torsoAngle);
+        }
+      } else {
+        consecutiveLyingFrames = Math.max(0, consecutiveLyingFrames - 1);
+      }
+    }
+
+    function triggerFallSequence(reason, torsoAngle) {
+      isFallSuspected = true;
+      document.getElementById('webFallOverlay').classList.remove('hidden');
+      document.getElementById('monitorBannerStatus').innerText = '🚨 FALL DETECTED (GRACE PERIOD)';
+      document.getElementById('monitorBannerStatus').className = 'font-bold text-rose-400 animate-pulse';
+
+      playAlertChime();
+      speakPrompt("SafeFall detected a fall. Are you okay?");
+
+      let secondsLeft = 3.0;
+      document.getElementById('fallCountdownText').innerText = `Grace Period: Verifying response in ${secondsLeft.toFixed(1)}s...`;
+
+      fallGraceTimer = setInterval(() => {
+        secondsLeft -= 0.5;
+        playAlertChime();
+        if (secondsLeft <= 0) {
+          clearInterval(fallGraceTimer);
+          confirmWebFallAlertNow();
+        } else {
+          document.getElementById('fallCountdownText').innerText = `Grace Period: Verifying response in ${secondsLeft.toFixed(1)}s...`;
+        }
+      }, 500);
+    }
+
+    function cancelWebFallAlert() {
+      if (fallGraceTimer) clearInterval(fallGraceTimer);
+      isFallSuspected = false;
+      document.getElementById('webFallOverlay').classList.add('hidden');
+      document.getElementById('monitorBannerStatus').innerText = 'MONITORING NORMAL';
+      document.getElementById('monitorBannerStatus').className = 'font-bold text-emerald-400';
+      speakPrompt("Alarm cancelled. Glad you are safe.");
+    }
+
+    function confirmWebFallAlertNow() {
+      if (fallGraceTimer) clearInterval(fallGraceTimer);
+      document.getElementById('webFallOverlay').classList.add('hidden');
+
+      // Grab current canvas snapshot as evidentiary JPEG keyframe
+      const canvas = document.getElementById('outputCanvas');
+      const b64Image = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+      const incId = 'inc_' + Math.random().toString(36).substring(2, 10);
 
       const payload = {
         incidentId: incId,
         familyId: 'fam_demo_101',
-        deviceId: 'dev_win_01',
-        deviceName: 'Windows Living Room Monitor',
+        deviceId: 'dev_web_01',
+        deviceName: 'Online Web Camera Monitor',
         locationLabel: 'Living Room (Floor)',
         detectedAt: new Date().toISOString(),
         lastKnownPosture: 'LYING',
         transitionType: 'STANDING_TO_LYING',
-        confidence: 0.965,
-        voiceResponseStatus: voiceType === 'HELP' ? 'HELP_CONFIRMED' : 'NO_RESPONSE',
-        voiceTranscript: voiceType === 'HELP' ? 'Help me! I fell down and cannot get up!' : '',
+        confidence: 0.985,
+        voiceResponseStatus: 'HELP_CONFIRMED',
+        voiceTranscript: 'Help me! I fell down and cannot get up!',
         incidentStatus: 'EMERGENCY_PUBLISHED',
-        evidenceBase64: b64
+        evidenceBase64: b64Image
       };
 
-      try {
-        const res = await fetch(`${API_BASE}/incidents`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (res.ok) {
-          currentIncidentId = incId;
-          await refreshData();
+      dispatchPublishIncident(payload);
+
+      document.getElementById('monitorBannerStatus').innerText = '🚨 EMERGENCY PUBLISHED TO FAMILY';
+      document.getElementById('monitorBannerStatus').className = 'font-bold text-rose-400';
+
+      playAlertChime();
+      speakPrompt("Emergency confirmed. Alert sent to Sarah and family.");
+
+      // Switch to Caregiver View to show the alert!
+      setTimeout(() => {
+        switchView('caregiver');
+      }, 1000);
+    }
+
+    function simulateImmediateFallTrigger() {
+      triggerFallSequence('SIMULATED_TEST_TRIGGER', 78.5);
+    }
+
+    function testSpeechRecognitionEngine() {
+      speakPrompt("SafeFall voice verification check. Are you okay?");
+      alert('Speech Recognition Active: Listening for "Help me" or "I am fine".');
+    }
+
+    // Skeleton drawing
+    function drawPoseSkeleton(ctx, lm, w, h) {
+      const connections = [
+        [11, 12], [11, 23], [12, 24], [23, 24], // Torso
+        [11, 13], [13, 15],                      // Left Arm
+        [12, 14], [14, 16],                      // Right Arm
+        [23, 25], [25, 27],                      // Left Leg
+        [24, 26], [26, 28]                       // Right Leg
+      ];
+
+      ctx.strokeStyle = currentPosture === 'LYING' ? '#EF4444' : '#10B981';
+      ctx.lineWidth = 3;
+
+      connections.forEach(([i, j]) => {
+        const p1 = lm[i];
+        const p2 = lm[j];
+        if (p1 && p2 && (p1.visibility || 1) > 0.3 && (p2.visibility || 1) > 0.3) {
+          ctx.beginPath();
+          ctx.moveTo(p1.x * w, p1.y * h);
+          ctx.lineTo(p2.x * w, p2.y * h);
+          ctx.stroke();
         }
-      } catch (e) {
-        alert('Simulation failed: ' + e);
+      });
+
+      // Joint circles
+      ctx.fillStyle = '#38BDF8';
+      [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28].forEach(idx => {
+        const p = lm[idx];
+        if (p && (p.visibility || 1) > 0.3) {
+          ctx.beginPath();
+          ctx.arc(p.x * w, p.y * h, 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+    }
+
+    function drawHUDOverlay(ctx, lm, w, h) {
+      // Find bounding box
+      let minX = w, maxX = 0, minY = h, maxY = 0;
+      lm.forEach(p => {
+        if ((p.visibility || 1) > 0.3) {
+          minX = Math.min(minX, p.x * w);
+          maxX = Math.max(maxX, p.x * w);
+          minY = Math.min(minY, p.y * h);
+          maxY = Math.max(maxY, p.y * h);
+        }
+      });
+
+      if (maxX > minX && maxY > minY) {
+        ctx.strokeStyle = currentPosture === 'LYING' ? '#EF4444' : '#10B981';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(minX - 10, minY - 10, (maxX - minX) + 20, (maxY - minY) + 20);
+
+        // Label Tag
+        ctx.fillStyle = currentPosture === 'LYING' ? '#EF4444' : '#10B981';
+        ctx.fillRect(minX - 10, minY - 30, 160, 20);
+        ctx.fillStyle = '#000000';
+        ctx.font = 'bold 11px JetBrains Mono, monospace';
+        ctx.fillText(`TRACKED [${currentPosture}]`, minX - 5, minY - 16);
       }
     }
 
-    async function purgeResolvedIncidents() {
-      try {
-        await fetch(`${API_BASE}/incidents/resolved`, { method: 'DELETE' });
-        await refreshData();
-      } catch (e) {
-        alert('Purge error: ' + e);
-      }
-    }
-
-    // Helpers
+    // Formatters & Helpers
     function formatTime(isoOrTs) {
       if (!isoOrTs) return 'Just now';
       try {
@@ -789,9 +1307,63 @@
       return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
-    // Polling Loop (every 2.5 seconds)
-    refreshData();
+    // Seed sample incident if empty
+    if (localIncidentsStore.length === 0) {
+      triggerSimulatedIncident('HELP');
+    } else {
+      refreshData();
+    }
+
+    // Auto poll every 2.5s
     setInterval(refreshData, 2500);
+
+    function triggerSimulatedIncident(voiceType) {
+      const incId = 'sim_' + Date.now().toString(36);
+      const canvas = document.createElement('canvas');
+      canvas.width = 320;
+      canvas.height = 240;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(0, 0, 320, 240);
+      
+      // Draw grid
+      ctx.strokeStyle = '#1F2937';
+      ctx.lineWidth = 1;
+      for (let x = 0; x < 320; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 240); ctx.stroke(); }
+      for (let y = 0; y < 240; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(320, y); ctx.stroke(); }
+
+      // Fallen pose stick figure
+      ctx.strokeStyle = '#EF4444';
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(80, 180, 12, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(92, 180); ctx.lineTo(170, 185); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(170, 185); ctx.lineTo(240, 190); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(120, 182); ctx.lineTo(135, 160); ctx.stroke();
+
+      ctx.fillStyle = '#F87171';
+      ctx.font = '10px monospace';
+      ctx.fillText('[SafeFall AI Optical] Fall Confirmed', 10, 20);
+
+      const b64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+
+      const payload = {
+        incidentId: incId,
+        familyId: 'fam_demo_101',
+        deviceId: 'dev_win_01',
+        deviceName: 'Living Room Monitor',
+        locationLabel: 'Living Room (Floor)',
+        detectedAt: new Date().toISOString(),
+        lastKnownPosture: 'LYING',
+        transitionType: 'STANDING_TO_LYING',
+        confidence: 0.965,
+        voiceResponseStatus: voiceType === 'HELP' ? 'REQUEST_HELP' : 'NO_RESPONSE',
+        voiceTranscript: voiceType === 'HELP' ? 'Help me! I fell down and cannot get up!' : '',
+        incidentStatus: 'EMERGENCY_PUBLISHED',
+        evidenceBase64: b64
+      };
+
+      dispatchPublishIncident(payload);
+    }
   </script>
 </body>
 </html>

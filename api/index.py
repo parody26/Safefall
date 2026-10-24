@@ -48,6 +48,25 @@ def _load_persisted_state():
     except Exception:
         pass
 
+    # Also load queued incidents if present
+    try:
+        q_paths = [
+            os.path.join(os.path.dirname(__file__), "..", "safefall", "windows_monitor", "queued_incidents.json"),
+            os.path.join(os.getcwd(), "safefall", "windows_monitor", "queued_incidents.json"),
+        ]
+        for qp in q_paths:
+            if os.path.exists(qp):
+                with open(qp, "r", encoding="utf-8") as f:
+                    q_list = json.load(f)
+                    if isinstance(q_list, list):
+                        for inc in q_list:
+                            if isinstance(inc, dict) and "incidentId" in inc:
+                                if inc["incidentId"] not in INCIDENTS:
+                                    INCIDENTS[inc["incidentId"]] = inc
+                break
+    except Exception:
+        pass
+
 
 def _save_persisted_state():
     try:

@@ -28,6 +28,26 @@ except Exception:
 # In-memory storage with thread safety
 DB_LOCK = threading.Lock()
 INCIDENTS: Dict[str, Dict[str, Any]] = {}
+
+# Load any queued incidents from windows_monitor offline buffer
+try:
+    q_paths = [
+        os.path.join(os.path.dirname(__file__), "..", "windows_monitor", "queued_incidents.json"),
+        os.path.join(os.getcwd(), "safefall", "windows_monitor", "queued_incidents.json"),
+        os.path.join(os.getcwd(), "queued_incidents.json"),
+    ]
+    for qp in q_paths:
+        if os.path.exists(qp):
+            with open(qp, "r", encoding="utf-8") as f:
+                q_list = json.load(f)
+                if isinstance(q_list, list):
+                    for inc in q_list:
+                        if isinstance(inc, dict) and "incidentId" in inc:
+                            INCIDENTS[inc["incidentId"]] = inc
+            break
+except Exception:
+    pass
+
 DEVICES: Dict[str, Dict[str, Any]] = {
     "dev_win_01": {
         "deviceId": "dev_win_01",
