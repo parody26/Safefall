@@ -6,6 +6,12 @@ Acoustic Beep-Beep Alarm, Speech Interaction, and Windows Desktop UI.
 
 import os
 import sys
+
+# Ensure windows_monitor root is in sys.path when invoked directly as python src/main.py
+_parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _parent_dir not in sys.path:
+    sys.path.insert(0, _parent_dir)
+
 import argparse
 import tkinter as tk
 
@@ -20,7 +26,30 @@ from src.pose.real_pose_detector import RealPoseDetector
 from src.ui.desktop_gui import SafeFallDesktopApp
 
 
+def _load_env_file():
+    candidates = [
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env")),
+        os.path.abspath(os.path.join(os.getcwd(), ".env")),
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            try:
+                with open(c, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k, v = k.strip(), v.strip().strip('"').strip("'")
+                            if k and k not in os.environ:
+                                os.environ[k] = v
+            except Exception:
+                pass
+            break
+
+
 def main():
+    _load_env_file()
     parser = argparse.ArgumentParser(description="SafeFall Windows AI Fall Monitoring Engine")
     parser.add_argument("--simulation", action="store_true", help="Run with simulated synthetic postures and video")
     parser.add_argument("--device-index", type=int, default=0, help="Webcam device index (default: 0)")

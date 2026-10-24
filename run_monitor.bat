@@ -4,5 +4,5 @@ echo ========================================================
 echo   Starting SafeFall AI Fall Detection Monitoring Station
 echo ========================================================
 cd /d "%~dp0\safefall\windows_monitor"
-python src/main.py
+python src/main.py %*
 pause
