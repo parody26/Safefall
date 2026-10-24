@@ -40,12 +40,16 @@
       <span class="text-xs text-[#94A3B8] border-l border-slate-700 pl-3">Monitoring Living Room</span>
     </div>
 
-    <!-- LINK TO FAMILY APP -->
-    <div class="flex items-center space-x-3">
-      <a href="/family" class="flex items-center space-x-2 px-3 py-1 rounded bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-bold transition shadow">
+    <!-- LINK TO FAMILY APP & CLEAR FEED -->
+    <div class="flex items-center space-x-2.5">
+      <a href="/family" class="flex items-center space-x-1.5 px-3 py-1 rounded bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-bold transition shadow">
         <span>👨‍👩‍👧</span>
-        <span>Open Family Safety App ↗</span>
+        <span>Open Family App ↗</span>
       </a>
+      <button onclick="clearAllFeed()" class="flex items-center space-x-1 px-3 py-1 rounded bg-rose-950/80 hover:bg-rose-900 text-rose-200 text-xs font-bold border border-rose-800 transition shadow">
+        <span>🗑️</span>
+        <span>Clear Feed</span>
+      </button>
       <span class="text-xs font-mono text-slate-400 bg-[#242B35] px-2.5 py-1 rounded border border-[#334155]">
         Living Room Monitor
       </span>
@@ -787,31 +791,85 @@
     let micAnalyser = null;
     let micDataArray = null;
 
-    // Real Web Speech Recognition
+    // Real Web Speech Recognition Engine
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let speechRecognizer = null;
     let latestTranscript = '';
 
     function initSpeechRecognizer() {
-      if (!SpeechRecognition) return;
+      if (!SpeechRecognition) {
+        console.warn('[SafeFall Voice] Web Speech Recognition API not supported in this browser.');
+        const stat = document.getElementById('lblVoiceStatus');
+        if (stat) stat.innerText = '🎙️ Voice Engine: (Click overlay buttons to respond)';
+        return;
+      }
       try {
+        if (speechRecognizer) {
+          try { speechRecognizer.abort(); } catch(e) {}
+        }
         speechRecognizer = new SpeechRecognition();
         speechRecognizer.continuous = true;
         speechRecognizer.interimResults = true;
         speechRecognizer.lang = 'en-US';
+        speechRecognizer.maxAlternatives = 3;
+
+        speechRecognizer.onstart = () => {
+          console.log('[SafeFall Voice] Speech recognition active and listening');
+        };
 
         speechRecognizer.onresult = (event) => {
           let interim = '';
           for (let i = event.resultIndex; i < event.results.length; ++i) {
-            interim += event.results[i][0].transcript;
+            interim += event.results[i][0].transcript + ' ';
           }
-          latestTranscript = interim.trim().toLowerCase();
-          handleSpokenText(latestTranscript);
+          const text = interim.trim().toLowerCase();
+          console.log('[SafeFall Voice Heard]:', text);
+          if (text) {
+            handleSpokenText(text);
+          }
         };
-      } catch(e) {}
+
+        speechRecognizer.onerror = (event) => {
+          console.warn('[SafeFall Voice Error]:', event.error);
+          if (isVoiceWindowActive && event.error !== 'not-allowed') {
+            setTimeout(() => {
+              if (isVoiceWindowActive) {
+                try { speechRecognizer.start(); } catch(e) {}
+              }
+            }, 150);
+          }
+        };
+
+        speechRecognizer.onend = () => {
+          console.log('[SafeFall Voice Ended]');
+          // Crucial: Auto-restart while 10s voice window is active so recognition never drops!
+          if (isVoiceWindowActive) {
+            setTimeout(() => {
+              if (isVoiceWindowActive) {
+                try { speechRecognizer.start(); } catch(e) {}
+              }
+            }, 80);
+          }
+        };
+      } catch(e) {
+        console.error('[SafeFall Voice Init Error]:', e);
+      }
     }
 
     initSpeechRecognizer();
+
+    function startVoiceRecognitionSession() {
+      if (!SpeechRecognition) return;
+      try {
+        if (!speechRecognizer) initSpeechRecognizer();
+        try { speechRecognizer.abort(); } catch(e) {}
+        setTimeout(() => {
+          if (isVoiceWindowActive) {
+            try { speechRecognizer.start(); } catch(e) {}
+          }
+        }, 100);
+      } catch(e) {}
+    }
 
     function speakAloud(text) {
       if (!window.speechSynthesis) return;
@@ -905,6 +963,7 @@
         document.getElementById('lblStatMic').className = 'text-[#22C55E] font-bold';
 
         setupMicAnalyser(stream);
+        initSpeechRecognizer();
         initPose(video, canvas);
       } catch(err) {
         alert('Permission Error: ' + err.message + '\nPlease grant CAMERA and MICROPHONE access in your browser.');
@@ -1060,11 +1119,9 @@
       document.getElementById('lblVoiceStatus').className = 'text-[#38BDF8] font-bold animate-pulse';
       document.getElementById('voiceLiveHeardBox').innerText = '🗣️ Heard: (listening for your voice...)';
 
-      speakAloud("SafeFall detected a fall. Are you okay? Say 'I am fine' or 'Help me'.");
+      speakAloud("SafeFall alert. Are you okay? Say 'I am fine' or 'Help me'.");
 
-      if (speechRecognizer) {
-        try { speechRecognizer.start(); } catch(e) {}
-      }
+      startVoiceRecognitionSession();
 
       let voiceTimeLeft = 10.0;
       document.getElementById('voiceCountdownLabel').innerText = `Listening Window: ${voiceTimeLeft.toFixed(1)}s remaining`;
@@ -1082,18 +1139,29 @@
 
     function handleSpokenText(text) {
       if (!isVoiceWindowActive) return;
-      document.getElementById('voiceLiveHeardBox').innerText = `🗣️ Heard: "${text}"`;
-      document.getElementById('lblVoiceHeard').innerText = `🗣️ Heard: "${text}"`;
+      const clean = (text || '').toLowerCase().trim();
+      latestTranscript = clean;
 
-      const safeRegex = /(i('m| am) fine|i('m| am) okay|all good|no help|fine|okay|cancel|false alarm|stop|don't help|dont help)/i;
-      if (safeRegex.test(text)) {
-        cancelFallAlert('VERBAL_SAFE', text);
+      const liveBox = document.getElementById('voiceLiveHeardBox');
+      if (liveBox) liveBox.innerText = `🗣️ Heard: "${clean}"`;
+      const heardLbl = document.getElementById('lblVoiceHeard');
+      if (heardLbl) heardLbl.innerText = `🗣️ Heard: "${clean}"`;
+
+      // SAFE / REASSURANCE keywords:
+      // Matches "fine", "i am fine", "i'm fine", "im fine", "okay", "ok", "i am ok", "im ok", "all good", "cancel", "stop", etc.
+      const safeRegex = /(fine|i('?m| am) fine|okay|ok|i('?m| am) ok|all good|no help|cancel|false alarm|stop|don'?t help|dont help|safe|good|nothing|yes i am fine)/i;
+      if (safeRegex.test(clean)) {
+        console.log('[SafeFall Voice] Confirmed safe via speech:', clean);
+        cancelFallAlert('VERBAL_SAFE', clean);
         return;
       }
 
-      const helpRegex = /(help|help me|i fell|i fell down|cannot get up|can't get up|call 911|call ambulance|emergency|it hurts|pain)/i;
-      if (helpRegex.test(text)) {
-        publishFallAlertNow('REQUEST_HELP', text);
+      // HELP / EMERGENCY keywords:
+      // Matches "help", "help me", "fell", "i fell", "emergency", "ambulance", "911", "hurts", "pain", "can't get up"
+      const helpRegex = /(help|help me|fell|fall|call 911|ambulance|emergency|hurts|pain|can'?t get up|cannot get up|please help|save me)/i;
+      if (helpRegex.test(clean)) {
+        console.log('[SafeFall Voice] Confirmed emergency via speech:', clean);
+        publishFallAlertNow('REQUEST_HELP', clean);
         return;
       }
     }

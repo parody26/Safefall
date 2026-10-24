@@ -65,9 +65,15 @@
         ALL MONITORED RESIDENCES NORMAL — No Active Fall Emergencies
       </span>
     </div>
-    <button onclick="refreshData()" class="px-3 py-1 rounded bg-[#0F172A] hover:bg-[#1E293B] text-slate-300 text-xs font-bold border border-slate-700 transition">
-      🔄 Refresh Feed
-    </button>
+    <div class="flex items-center space-x-2">
+      <button onclick="refreshData()" class="px-3 py-1 rounded bg-[#0F172A] hover:bg-[#1E293B] text-slate-300 text-xs font-bold border border-slate-700 transition">
+        🔄 Refresh Feed
+      </button>
+      <button onclick="clearAllFeedFamily()" id="btnClearFeedFamily" class="px-3 py-1 rounded bg-red-950/70 hover:bg-red-900 text-red-200 text-xs font-bold border border-red-800 transition flex items-center space-x-1.5 shadow">
+        <span>🗑️</span>
+        <span>Clear All Feed</span>
+      </button>
+    </div>
   </div>
 
   <!-- MAIN CONTAINER (Left: Incident Card, Right: Feeds & Contacts) -->
@@ -192,10 +198,14 @@
             <span>📋</span>
             <span>Incident Feed</span>
           </div>
-          <div class="flex space-x-1">
+          <div class="flex items-center space-x-1">
             <button onclick="setFilter('ALL')" id="filterAll" class="text-[10px] px-2 py-0.5 rounded bg-[#0EA5E9] text-white font-bold">All</button>
             <button onclick="setFilter('ACTIVE')" id="filterActive" class="text-[10px] px-2 py-0.5 rounded bg-[#1E293B] text-slate-400 font-bold hover:text-white">Active</button>
             <button onclick="setFilter('RESOLVED')" id="filterResolved" class="text-[10px] px-2 py-0.5 rounded bg-[#1E293B] text-slate-400 font-bold hover:text-white">Resolved</button>
+            <button onclick="clearAllFeedFamily()" title="Clear all incidents feed" class="text-[10px] px-2 py-0.5 rounded bg-red-950/80 hover:bg-red-900 text-red-300 font-bold border border-red-800 ml-1 flex items-center space-x-1">
+              <span>🗑️</span>
+              <span>Clear</span>
+            </button>
           </div>
         </div>
 
@@ -518,6 +528,39 @@
       try {
         localStorage.setItem('safefall_incidents_store', JSON.stringify(all));
       } catch(e) {}
+    }
+
+    async function clearAllFeedFamily() {
+      const confirmed = confirm("Are you sure you want to clear all incidents and reset the emergency feed?");
+      if (!confirmed) return;
+
+      const btn = document.getElementById('btnClearFeedFamily');
+      if (btn) btn.innerHTML = "<span>⏳</span><span>Clearing...</span>";
+
+      // 1. Clear local browser storage
+      try {
+        localStorage.setItem('safefall_incidents_store', JSON.stringify([]));
+      } catch(e) {}
+
+      // 2. Call backend DELETE API
+      try {
+        await fetch(`${API_BASE}/incidents`, { method: 'DELETE' });
+      } catch(e) {}
+
+      // 3. Reset in-memory state and re-render
+      incidents = [];
+      currentIncidentId = null;
+      render();
+
+      // 4. Notify other tabs
+      try {
+        window.dispatchEvent(new StorageEvent('storage', {
+          key: 'safefall_incidents_store',
+          newValue: '[]'
+        }));
+      } catch(e) {}
+
+      if (btn) btn.innerHTML = "<span>🗑️</span><span>Clear All Feed</span>";
     }
 
     function formatTime(t) {
