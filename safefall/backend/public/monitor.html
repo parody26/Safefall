@@ -184,33 +184,6 @@
         </div>
       </div>
 
-      <!-- Section: Simulation & Emergency Tests (Exact 5 desktop buttons) -->
-      <div>
-        <div class="text-[11px] font-bold text-[#64748B] uppercase tracking-wider mb-1.5">SIMULATION & EMERGENCY TESTS</div>
-        <div class="space-y-1.5">
-          <button onclick="testMicVoice()" class="w-full py-2 px-3 rounded bg-[#0D9488] hover:bg-[#0F766E] text-white text-xs font-bold transition flex items-center justify-center space-x-1.5">
-            <span>🎙️</span>
-            <span>Test Mic & Voice ('Help' / 'I am fine')</span>
-          </button>
-          <button onclick="triggerTestFall()" class="w-full py-2 px-3 rounded bg-[#DC2626] hover:bg-[#B91C1C] text-white text-xs font-bold transition flex items-center justify-center space-x-1.5">
-            <span>🚨</span>
-            <span>Trigger Test Fall (3s -> 10s)</span>
-          </button>
-          <button onclick="simulateReassurance()" class="w-full py-2 px-3 rounded bg-[#0284C7] hover:bg-[#0369A1] text-white text-xs font-bold transition flex items-center justify-center space-x-1.5">
-            <span>🗣️</span>
-            <span>Simulate Reassurance ('I am fine')</span>
-          </button>
-          <button onclick="simulateHelpRequest()" class="w-full py-2 px-3 rounded bg-[#E11D48] hover:bg-[#BE123C] text-white text-xs font-bold transition flex items-center justify-center space-x-1.5">
-            <span>🆘</span>
-            <span>Simulate Help Request ('Help me')</span>
-          </button>
-          <button onclick="testAlarm()" class="w-full py-2 px-3 rounded bg-[#334155] hover:bg-[#475569] text-slate-200 text-xs font-bold transition flex items-center justify-center space-x-1.5">
-            <span>🔔</span>
-            <span>Test Alarm (Beep-Beep)</span>
-          </button>
-        </div>
-      </div>
-
     </div>
 
   </main>
@@ -1014,42 +987,6 @@
       showHud = !showHud;
       const btn = document.getElementById('btnHud');
       btn.innerText = `📊 Telemetry HUD: ${showHud ? 'ON' : 'OFF'}`;
-    }
-
-    // Simulation & Emergency Tests
-    function testMicVoice() {
-      document.getElementById('lblVoiceStatus').innerText = '🎙️ Voice Engine: LISTENING (10s)';
-      document.getElementById('lblVoiceHeard').innerText = 'Mic: [████████░░] (Say "Help" or "I am fine")';
-      speakAloud("SafeFall voice diagnostic check. Please say 'Help' or 'I am fine'.");
-
-      if (speechRecognizer) {
-        try { speechRecognizer.start(); } catch(e) {}
-      }
-
-      isVoiceWindowActive = true;
-      setTimeout(() => {
-        if (isVoiceWindowActive) {
-          isVoiceWindowActive = false;
-          document.getElementById('lblVoiceStatus').innerText = '🎙️ Voice Engine: READY';
-          document.getElementById('lblVoiceHeard').innerText = 'Mic: [░░░░░░░░░░] (idle)';
-        }
-      }, 10000);
-    }
-
-    function triggerTestFall() {
-      startGraceCountdown('Manual test trigger initiated (3s grace -> 10s voice check)');
-    }
-
-    function simulateReassurance() {
-      cancelFallAlert('VERBAL_SAFE', 'I am fine');
-    }
-
-    function simulateHelpRequest() {
-      publishFallAlertNow('REQUEST_HELP', 'Help me please!');
-    }
-
-    function testAlarm() {
-      playBeepBeepAlarm();
     }
 
     // Skeleton drawing
