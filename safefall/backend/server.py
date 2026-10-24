@@ -451,6 +451,18 @@ class SafeFallRequestHandler(BaseHTTPRequestHandler):
             with DB_LOCK:
                 count = len(INCIDENTS)
                 INCIDENTS.clear()
+            try:
+                q_paths = [
+                    os.path.join(os.path.dirname(__file__), "..", "windows_monitor", "queued_incidents.json"),
+                    os.path.join(os.getcwd(), "safefall", "windows_monitor", "queued_incidents.json"),
+                    os.path.join(os.getcwd(), "queued_incidents.json"),
+                ]
+                for qp in q_paths:
+                    if os.path.exists(qp):
+                        with open(qp, "w", encoding="utf-8") as f:
+                            json.dump([], f)
+            except Exception:
+                pass
             print(f"[SafeFall Backend] Purged all {count} incidents.")
             self._send_json(200, {"success": True, "purgedCount": count})
             return

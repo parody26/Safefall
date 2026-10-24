@@ -359,11 +359,18 @@
         badge.innerText = 'STANDBY';
         badge.className = 'text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#1E293B] text-slate-400';
         timeDisp.innerText = '---';
+        img.src = '';
+        img.removeAttribute('src');
         img.classList.add('hidden');
         placeholder.classList.remove('hidden');
         tag.classList.add('hidden');
         voiceBadge.innerText = 'NO SPEECH';
+        voiceBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-400';
         voiceText.innerText = '"No voice response recorded yet."';
+        loc.innerText = '---';
+        conf.innerText = '--%';
+        trans.innerText = '---';
+        dev.innerText = '---';
         btnAck.disabled = true;
         btnRes.disabled = true;
         return;
@@ -550,6 +557,7 @@
       // 3. Reset in-memory state and re-render
       incidents = [];
       currentIncidentId = null;
+      renderFocus(null);
       render();
 
       // 4. Notify other tabs

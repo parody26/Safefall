@@ -44,11 +44,12 @@ def _load_persisted_state():
             with open(STORE_PATH, "r", encoding="utf-8") as f:
                 saved = json.load(f)
                 if isinstance(saved, dict):
-                    INCIDENTS.update(saved)
+                    INCIDENTS = saved
+                    return
     except Exception:
         pass
 
-    # Also load queued incidents if present
+    # Only load queued incidents if no persisted store exists yet
     try:
         q_paths = [
             os.path.join(os.path.dirname(__file__), "..", "safefall", "windows_monitor", "queued_incidents.json"),
@@ -349,6 +350,17 @@ class handler(BaseHTTPRequestHandler):
             count = len(INCIDENTS)
             INCIDENTS.clear()
             _save_persisted_state()
+            try:
+                q_paths = [
+                    os.path.join(os.path.dirname(__file__), "..", "safefall", "windows_monitor", "queued_incidents.json"),
+                    os.path.join(os.getcwd(), "safefall", "windows_monitor", "queued_incidents.json"),
+                ]
+                for qp in q_paths:
+                    if os.path.exists(qp):
+                        with open(qp, "w", encoding="utf-8") as f:
+                            json.dump([], f)
+            except Exception:
+                pass
             self._send_json(200, {"success": True, "purgedCount": count})
             return
 
