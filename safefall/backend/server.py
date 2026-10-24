@@ -120,12 +120,34 @@ class SafeFallRequestHandler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/")
         query = parse_qs(parsed.query)
 
-        # 1. Family Safety Web Dashboard & Health Check
-        if path in ("", "/index.html"):
+        # 1. Routes for Family App & AI Camera Monitor
+        if path in ("", "/", "/family", "/family.html", "/index.html"):
             html_paths = [
-                os.path.join(os.path.dirname(__file__), "public", "index.html"),
-                os.path.join(os.path.dirname(__file__), "..", "..", "public", "index.html"),
+                os.path.join(os.path.dirname(__file__), "public", "family.html"),
+                os.path.join(os.path.dirname(__file__), "..", "..", "public", "family.html"),
+                os.path.join(os.getcwd(), "public", "family.html"),
                 os.path.join(os.getcwd(), "public", "index.html"),
+            ]
+            for hp in html_paths:
+                if os.path.exists(hp):
+                    try:
+                        with open(hp, "rb") as f:
+                            content = f.read()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/html; charset=utf-8")
+                        self.send_header("Content-Length", str(len(content)))
+                        self._send_cors_headers()
+                        self.end_headers()
+                        self.wfile.write(content)
+                        return
+                    except Exception:
+                        pass
+
+        if path in ("/monitor", "/monitor.html"):
+            html_paths = [
+                os.path.join(os.path.dirname(__file__), "public", "monitor.html"),
+                os.path.join(os.path.dirname(__file__), "..", "..", "public", "monitor.html"),
+                os.path.join(os.getcwd(), "public", "monitor.html"),
             ]
             for hp in html_paths:
                 if os.path.exists(hp):

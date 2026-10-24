@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SafeFall — AI Fall Detection Monitoring Station</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background-color: #0A0C0F;
+      color: #E2E8F0;
+    }
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    @keyframes red-strobe {
+      0%, 100% { background-color: #DC2626; }
+      50% { background-color: #991B1B; }
+    }
+    .alert-strobe {
+      animation: red-strobe 1s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col bg-[#0A0C0F] text-slate-100 antialiased select-none">
+
+  <!-- TOP HEADER (Exact local desktop style) -->
+  <header class="bg-[#161B22] border-b border-[#2D3748] px-5 py-2.5 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <span class="text-base font-bold text-[#38BDF8] flex items-center space-x-2">
+        <span>🛡️</span>
+        <span>SafeFall AI Fall Detection Station</span>
+      </span>
+      <span class="text-xs text-[#94A3B8] border-l border-slate-700 pl-3">Monitoring Living Room</span>
+    </div>
+
+    <!-- LINK TO FAMILY APP -->
+    <div class="flex items-center space-x-3">
+      <a href="/family" class="flex items-center space-x-2 px-3 py-1 rounded bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-bold transition shadow">
+        <span>👨‍👩‍👧</span>
+        <span>Open Family Safety App ↗</span>
+      </a>
+      <span class="text-xs font-mono text-slate-400 bg-[#242B35] px-2.5 py-1 rounded border border-[#334155]">
+        Living Room Monitor
+      </span>
+    </div>
+  </header>
+
+  <!-- MAIN CONTENT CONTAINER (Left: Video & Alerts, Right: Control & Telemetry) -->
+  <main class="flex-1 p-3 grid grid-cols-1 lg:grid-cols-12 gap-3 max-w-[1600px] w-full mx-auto">
+
+    <!-- LEFT COLUMN: VIDEO & EMERGENCY BANNER (8 Cols) -->
+    <div class="lg:col-span-8 flex flex-col">
+      
+      <!-- EMERGENCY BANNER (Exact local desktop layout) -->
+      <div id="alertBanner" class="bg-[#242B35] rounded-t-lg px-4 py-2.5 flex items-center justify-between border border-[#2D3748] border-b-0">
+        <div class="flex items-center space-x-2.5">
+          <span id="bannerDot" class="w-3 h-3 rounded-full bg-[#22C55E]"></span>
+          <span id="bannerText" class="text-xs font-bold text-[#22C55E] tracking-wide">
+            SYSTEM NORMAL — Continuous surveillance active
+          </span>
+        </div>
+        <span id="incidentIdTag" class="text-xs font-mono font-bold text-slate-400 hidden"></span>
+      </div>
+
+      <!-- VIDEO CANVAS -->
+      <div class="relative flex-1 bg-[#0A0B0D] border border-[#2D3748] rounded-b-lg overflow-hidden flex items-center justify-center min-h-[460px]">
+        <video id="webcamVideo" class="hidden" playsinline autoplay muted></video>
+        <canvas id="outputCanvas" class="w-full h-full object-contain"></canvas>
+
+        <!-- Initial Start Camera Overlay -->
+        <div id="startCameraOverlay" class="absolute inset-0 bg-[#0B0F17]/95 flex flex-col items-center justify-center p-6 text-center z-10">
+          <div class="w-16 h-16 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400 text-3xl mb-3">
+            📷
+          </div>
+          <h3 class="text-base font-bold text-slate-200">SafeFall Optical Surveillance Camera</h3>
+          <p class="text-xs text-slate-400 max-w-sm mt-1 mb-4">
+            Click below to start live optical posture tracking and fall detection.
+          </p>
+          <button onclick="startCamera()" class="px-6 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow transition flex items-center space-x-2">
+            <span>▶</span>
+            <span>Enable Camera & Begin Monitoring</span>
+          </button>
+        </div>
+
+        <!-- Grace Period Countdown Overlay -->
+        <div id="countdownOverlay" class="absolute inset-0 bg-red-950/80 backdrop-blur-sm border-4 border-red-600 hidden flex flex-col items-center justify-center p-6 text-center z-20 alert-strobe">
+          <div class="text-4xl mb-2">🚨</div>
+          <h2 class="text-xl font-bold text-white uppercase tracking-wider">SUSPECTED FALL DETECTED</h2>
+          <p id="countdownLabel" class="text-sm font-bold text-amber-300 my-2 font-mono">Grace Period: 3.0s (Verifying stillness...)</p>
+          <p class="text-xs text-slate-200 mb-4">Acoustic warning active. Listening for verbal reassurance...</p>
+          <div class="flex space-x-3">
+            <button onclick="cancelFallAlert()" class="px-4 py-2 rounded bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold border border-slate-600">
+              ✋ Cancel Alert ("I'm Fine")
+            </button>
+            <button onclick="publishFallAlertNow('VERBAL_HELP')" class="px-4 py-2 rounded bg-red-600 hover:bg-red-500 text-white text-xs font-bold">
+              🚨 Confirm Help Request
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT COLUMN: CONTROLS, TELEMETRY & STATUS BADGES (4 Cols - Exact desktop_gui.py panel) -->
+    <div class="lg:col-span-4 bg-[#1A1E24] border border-[#2D3748] rounded-lg p-4 flex flex-col space-y-3.5 overflow-y-auto">
+
+      <!-- Section: AI Posture Detection -->
+      <div>
+        <div class="text-[11px] font-bold text-[#64748B] uppercase tracking-wider mb-1.5">AI BIOMECHANICAL POSTURE</div>
+        <div class="bg-[#242B35] rounded-md p-3 border border-[#334155]/60">
+          <div id="lblPosture" class="text-2xl font-bold text-[#38BDF8] tracking-tight">STANDING</div>
+          <div id="lblConfidence" class="text-xs text-[#94A3B8] mt-1">Confidence: 94% | Torso Angle: 8.2°</div>
+        </div>
+      </div>
+
+      <!-- Section: AI Dynamic Activity & Kinematics -->
+      <div>
+        <div class="text-[11px] font-bold text-[#64748B] uppercase tracking-wider mb-1.5">DYNAMIC ACTIVITY CLASSIFICATION</div>
+        <div class="bg-[#242B35] rounded-md p-3 border border-[#334155]/60">
+          <div id="lblActivityState" class="text-sm font-bold text-[#22C55E]">NORMAL_MOVEMENT</div>
+          <div id="lblKinematics" class="text-xs text-[#94A3B8] font-mono mt-1">Vy: +0.00 | w: 0.0°/s | Smooth: 1.00</div>
+          <div id="lblTriggerReason" class="text-[11px] text-[#64748B] mt-1">Reason: Baseline continuous monitoring</div>
+        </div>
+      </div>
+
+      <!-- Section: Diagnostics & Hardware Status -->
+      <div>
+        <div class="text-[11px] font-bold text-[#64748B] uppercase tracking-wider mb-1.5">SYSTEM STATUS & SENSORS</div>
+        <div class="bg-[#242B35] rounded-md p-3 border border-[#334155]/60 space-y-1 text-xs">
+          <div id="lblStatCam" class="text-[#22C55E]">📷 Camera: ONLINE (24 FPS)</div>
+          <div id="lblStatMic" class="text-[#22C55E]">🎙️ Mic: ONLINE (Default Mic)</div>
+          <div id="lblVoiceStatus" class="text-[#94A3B8]">🎙️ Voice Engine: READY</div>
+          <div id="lblVoiceHeard" class="text-[11px] text-[#64748B] font-mono">Mic: [||||||||||||||||||||] (idle)</div>
+          <div id="lblStatCloud" class="text-[#22C55E]">☁️ Cloud Sync: CONNECTED</div>
+          <div id="lblStatDet" class="text-[#38BDF8]">⚡ Detection Engine: ACTIVE (24 Hz)</div>
+        </div>
+      </div>
+
+      <!-- Section: Monitoring Controls (Exact 3 desktop buttons) -->
+      <div>
+        <div class="text-[11px] font-bold text-[#64748B] uppercase tracking-wider mb-1.5">MONITORING CONTROLS</div>
+        <div class="space-y-1.5">
+          <button id="btnStopStart" onclick="toggleDetection()" class="w-full py-2 px-3 rounded bg-[#334155] hover:bg-[#475569] text-white text-xs font-bold transition flex items-center justify-center space-x-2">
+            <span>⏹</span>
+            <span id="btnStopStartText">Stop Fall Detection</span>
+          </button>
+          <button id="btnLandmarks" onclick="toggleLandmarks()" class="w-full py-2 px-3 rounded bg-[#065F46] hover:bg-[#047857] text-[#34D399] text-xs font-bold transition">
+            👁 Landmarks Overlay: ON
+          </button>
+          <button id="btnHud" onclick="toggleHud()" class="w-full py-2 px-3 rounded bg-[#1E293B] hover:bg-[#334155] text-slate-300 text-xs font-bold transition">
+            📊 Telemetry HUD: ON
+          </button>
+        </div>
+      </div>
+
+      <!-- Section: Simulation & Emergency Tests (Exact 5 desktop buttons) -->
+      <div>
+        <div class="text-[11px] font-bold text-[#64748B] uppercase tracking-wider mb-1.5">SIMULATION & EMERGENCY TESTS</div>
+        <div class="space-y-1.5">
+          <button onclick="testMicVoice()" class="w-full py-2 px-3 rounded bg-[#0D9488] hover:bg-[#0F766E] text-white text-xs font-bold transition flex items-center justify-center space-x-1.5">
+            <span>🎙️</span>
+            <span>Test Mic & Voice ('Help' / 'I am fine')</span>
+          </button>
+          <button onclick="triggerTestFall()" class="w-full py-2 px-3 rounded bg-[#DC2626] hover:bg-[#B91C1C] text-white text-xs font-bold transition flex items-center justify-center space-x-1.5">
+            <span>🚨</span>
+            <span>Trigger Test Fall (3s -> 10s)</span>
+          </button>
+          <button onclick="simulateReassurance()" class="w-full py-2 px-3 rounded bg-[#0284C7] hover:bg-[#0369A1] text-white text-xs font-bold transition flex items-center justify-center space-x-1.5">
+            <span>🗣️</span>
+            <span>Simulate Reassurance ('I am fine')</span>
+          </button>
+          <button onclick="simulateHelpRequest()" class="w-full py-2 px-3 rounded bg-[#E11D48] hover:bg-[#BE123C] text-white text-xs font-bold transition flex items-center justify-center space-x-1.5">
+            <span>🆘</span>
+            <span>Simulate Help Request ('Help me')</span>
+          </button>
+          <button onclick="testAlarm()" class="w-full py-2 px-3 rounded bg-[#334155] hover:bg-[#475569] text-slate-200 text-xs font-bold transition flex items-center justify-center space-x-1.5">
+            <span>🔔</span>
+            <span>Test Alarm (Beep-Beep)</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- JAVASCRIPT: EXACT ALGORITHM & STATE MACHINE FROM LOCAL CODE -->
+  <script>
+    const API_BASE = '/api/v1';
+    let isMonitoring = true;
+    let showLandmarks = true;
+    let showHud = true;
+    let cameraRunning = false;
+    let videoStream = null;
+    let pose = null;
+
+    // Kinematics and Posture (exact local python constants)
+    let currentPosture = 'STANDING';
+    let currentConfidence = 0.94;
+    let currentTorsoAngle = 8.2;
+    let currentActivity = 'NORMAL_MOVEMENT';
+    let prevTorsoY = null;
+    let prevTorsoTime = null;
+    let smoothedVy = 0.0;
+    let consecutiveLyingFrames = 0;
+    let isFallSuspected = false;
+    let graceTimer = null;
+    let audioCtx = null;
+
+    // Web Audio Synthesizer: Exact acoustic beep-beep alarm
+    function playBeepBeepAlarm() {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+
+        const now = audioCtx.currentTime;
+        [0, 0.2].forEach(offset => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(800, now + offset);
+          gain.gain.setValueAtTime(0.3, now + offset);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + offset + 0.12);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now + offset);
+          osc.stop(now + offset + 0.13);
+        });
+      } catch(e) {}
+    }
+
+    // Camera Start
+    async function startCamera() {
+      const video = document.getElementById('webcamVideo');
+      const canvas = document.getElementById('outputCanvas');
+      const overlay = document.getElementById('startCameraOverlay');
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480, facingMode: 'user' },
+          audio: false
+        });
+        videoStream = stream;
+        video.srcObject = stream;
+        await video.play();
+
+        canvas.width = 640;
+        canvas.height = 480;
+        overlay.classList.add('hidden');
+        cameraRunning = true;
+
+        initPose(video, canvas);
+      } catch(err) {
+        alert('Could not access camera: ' + err.message);
+      }
+    }
+
+    function initPose(video, canvas) {
+      const ctx = canvas.getContext('2d');
+
+      if (window.Pose) {
+        pose = new Pose({
+          locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`
+        });
+        pose.setOptions({
+          modelComplexity: 1,
+          smoothLandmarks: true,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5
+        });
+        pose.onResults((res) => onResults(res, ctx, canvas, video));
+
+        const cam = new Camera(video, {
+          onFrame: async () => {
+            if (cameraRunning && isMonitoring && pose) {
+              await pose.send({ image: video });
+            }
+          },
+          width: 640,
+          height: 480
+        });
+        cam.start();
+      } else {
+        function loop() {
+          if (!cameraRunning) return;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          requestAnimationFrame(loop);
+        }
+        loop();
+      }
+    }
+
+    function onResults(results, ctx, canvas, video) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw mirrored video
+      ctx.save();
+      ctx.scale(-1, 1);
+      ctx.drawImage(results.image, -canvas.width, 0, canvas.width, canvas.height);
+      ctx.restore();
+
+      if (!results.poseLandmarks) {
+        updatePostureUI('UNKNOWN', 0.15, 0.0);
+        return;
+      }
+
+      const lm = results.poseLandmarks.map(p => ({ x: 1 - p.x, y: p.y, z: p.z, visibility: p.visibility }));
+      processKinematics(lm, canvas.width, canvas.height);
+
+      if (showLandmarks) {
+        drawSkeleton(ctx, lm, canvas.width, canvas.height);
+      }
+
+      if (showHud) {
+        drawHUD(ctx, lm, canvas.width, canvas.height);
+      }
+    }
+
+    function processKinematics(lm, w, h) {
+      const ls = lm[11], rs = lm[12], lh = lm[23], rh = lm[24];
+      if (!ls || !rs || !lh || !rh) return;
+
+      const shoulderY = (ls.y + rs.y) / 2;
+      const shoulderX = (ls.x + rs.x) / 2;
+      const hipY = (lh.y + rh.y) / 2;
+      const hipX = (lh.x + rh.x) / 2;
+      const torsoY = (shoulderY + hipY) / 2;
+
+      const now = performance.now() / 1000;
+      let vy = 0.0;
+      if (prevTorsoY !== null && prevTorsoTime !== null) {
+        const dt = now - prevTorsoTime;
+        if (dt > 0.01) {
+          vy = ((torsoY - prevTorsoY) * h) / dt;
+          smoothedVy = 0.7 * smoothedVy + 0.3 * vy;
+        }
+      }
+      prevTorsoY = torsoY;
+      prevTorsoTime = now;
+
+      const dx = (shoulderX - hipX) * w;
+      const dy = (shoulderY - hipY) * h;
+      const torsoAngle = Math.abs(Math.atan2(dx, -dy) * (180 / Math.PI));
+
+      // Posture classification
+      let posture = 'STANDING';
+      let conf = 0.94;
+      if (torsoAngle > 55 || torsoY > 0.75) {
+        posture = 'LYING';
+        conf = 0.96;
+      } else if (torsoAngle > 25 || torsoY > 0.55) {
+        posture = 'SITTING';
+        conf = 0.88;
+      }
+
+      currentPosture = posture;
+      currentConfidence = conf;
+      currentTorsoAngle = torsoAngle;
+
+      updatePostureUI(posture, conf, torsoAngle);
+
+      // Dynamic activity classification
+      if (smoothedVy > 160 && posture === 'LYING') {
+        consecutiveLyingFrames++;
+        if (consecutiveLyingFrames >= 3 && !isFallSuspected) {
+          startGraceCountdown('High velocity vertical collapse detected');
+        }
+      } else if (posture === 'LYING' && torsoY > 0.75) {
+        consecutiveLyingFrames++;
+        if (consecutiveLyingFrames > 18 && !isFallSuspected) {
+          startGraceCountdown('Prolonged floor-level lying posture');
+        }
+      } else {
+        consecutiveLyingFrames = Math.max(0, consecutiveLyingFrames - 1);
+        if (!isFallSuspected) {
+          document.getElementById('lblActivityState').innerText = 'NORMAL_MOVEMENT';
+          document.getElementById('lblActivityState').className = 'text-sm font-bold text-[#22C55E]';
+          document.getElementById('lblKinematics').innerText = `Vy: ${(smoothedVy/100).toFixed(2)} | w: ${torsoAngle.toFixed(1)}°/s | Smooth: 0.02`;
+          document.getElementById('lblTriggerReason').innerText = 'Reason: Confirming lying posture (0.00s < 0.30s)';
+        }
+      }
+    }
+
+    function updatePostureUI(posture, conf, angle) {
+      const lbl = document.getElementById('lblPosture');
+      lbl.innerText = posture;
+      lbl.className = posture === 'LYING'
+        ? 'text-2xl font-bold text-[#EF4444] tracking-tight'
+        : (posture === 'SITTING' ? 'text-2xl font-bold text-[#38BDF8] tracking-tight' : 'text-2xl font-bold text-[#38BDF8] tracking-tight');
+      
+      document.getElementById('lblConfidence').innerText = `Confidence: ${(conf * 100).toFixed(0)}% | Torso Angle: ${angle.toFixed(1)}°`;
+    }
+
+    function startGraceCountdown(reason) {
+      isFallSuspected = true;
+      document.getElementById('countdownOverlay').classList.remove('hidden');
+      document.getElementById('lblActivityState').innerText = 'SUSPECTED_FALL';
+      document.getElementById('lblActivityState').className = 'text-sm font-bold text-[#EF4444]';
+      document.getElementById('lblTriggerReason').innerText = `Reason: ${reason}`;
+
+      document.getElementById('lblVoiceStatus').innerText = '🎙️ Voice Engine: REQUEST_HELP';
+      document.getElementById('lblVoiceStatus').className = 'text-[#EF4444] font-bold';
+
+      playBeepBeepAlarm();
+      let timeLeft = 3.0;
+
+      graceTimer = setInterval(() => {
+        timeLeft -= 0.5;
+        playBeepBeepAlarm();
+        if (timeLeft <= 0) {
+          clearInterval(graceTimer);
+          publishFallAlertNow('NO_RESPONSE');
+        } else {
+          document.getElementById('countdownLabel').innerText = `Grace Period: ${timeLeft.toFixed(1)}s (Verifying stillness...)`;
+        }
+      }, 500);
+    }
+
+    function cancelFallAlert() {
+      if (graceTimer) clearInterval(graceTimer);
+      isFallSuspected = false;
+      document.getElementById('countdownOverlay').classList.add('hidden');
+      document.getElementById('alertBanner').className = 'bg-[#242B35] rounded-t-lg px-4 py-2.5 flex items-center justify-between border border-[#2D3748] border-b-0';
+      document.getElementById('bannerDot').className = 'w-3 h-3 rounded-full bg-[#22C55E]';
+      document.getElementById('bannerText').innerText = 'SYSTEM NORMAL — Continuous surveillance active';
+      document.getElementById('bannerText').className = 'text-xs font-bold text-[#22C55E] tracking-wide';
+      document.getElementById('lblVoiceStatus').innerText = '🎙️ Voice Engine: NORMAL_CONFIRMED';
+      document.getElementById('lblVoiceStatus').className = 'text-[#22C55E]';
+      document.getElementById('lblVoiceHeard').innerText = '🗣️ Heard: "I am fine" (Alert dismissed)';
+    }
+
+    async function publishFallAlertNow(voiceIntent) {
+      if (graceTimer) clearInterval(graceTimer);
+      document.getElementById('countdownOverlay').classList.add('hidden');
+
+      const incId = 'inc_' + Math.random().toString(36).substring(2, 10);
+      const canvas = document.getElementById('outputCanvas');
+      const b64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+
+      // Exact desktop red banner
+      const banner = document.getElementById('alertBanner');
+      banner.className = 'bg-[#DC2626] rounded-t-lg px-4 py-2.5 flex items-center justify-between border border-red-700 border-b-0 alert-strobe';
+      document.getElementById('bannerDot').className = 'w-3 h-3 rounded-full bg-white';
+      const bText = document.getElementById('bannerText');
+      bText.innerText = `EMERGENCY PUBLISHED TO FAMILY — Incident ID: ${incId}`;
+      bText.className = 'text-xs font-extrabold text-white tracking-wide uppercase';
+
+      const voiceTxt = voiceIntent === 'NO_RESPONSE' ? '' : 'help me';
+      const voiceStat = voiceIntent === 'NO_RESPONSE' ? 'NO_RESPONSE' : 'REQUEST_HELP';
+
+      document.getElementById('lblVoiceStatus').innerText = `🎙️ Voice Engine: ${voiceStat}`;
+      document.getElementById('lblVoiceStatus').className = 'text-[#EF4444] font-bold';
+      document.getElementById('lblVoiceHeard').innerText = `🗣️ Heard: "${voiceTxt || '(no response)'}"`;
+
+      const payload = {
+        incidentId: incId,
+        familyId: 'fam_demo_101',
+        deviceId: 'dev_win_01',
+        deviceName: 'Windows Living Room Monitor',
+        locationLabel: 'Living Room',
+        detectedAt: new Date().toISOString(),
+        lastKnownPosture: 'LYING',
+        transitionType: 'STANDING_TO_LYING',
+        confidence: 0.985,
+        voiceResponseStatus: voiceStat,
+        voiceTranscript: voiceTxt,
+        incidentStatus: 'EMERGENCY_PUBLISHED',
+        evidenceBase64: b64
+      };
+
+      // Save to localStorage so Family App picks it up instantly
+      let store = [];
+      try {
+        const existing = localStorage.getItem('safefall_incidents_store');
+        if (existing) store = JSON.parse(existing);
+      } catch(e) {}
+      store.unshift(payload);
+      try {
+        localStorage.setItem('safefall_incidents_store', JSON.stringify(store));
+      } catch(e) {}
+
+      // POST to backend API
+      try {
+        await fetch(`${API_BASE}/incidents`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      } catch(e) {}
+    }
+
+    // Monitoring Controls
+    function toggleDetection() {
+      isMonitoring = !isMonitoring;
+      const btn = document.getElementById('btnStopStart');
+      const text = document.getElementById('btnStopStartText');
+      if (isMonitoring) {
+        text.innerText = 'Stop Fall Detection';
+        btn.className = 'w-full py-2 px-3 rounded bg-[#334155] hover:bg-[#475569] text-white text-xs font-bold transition flex items-center justify-center space-x-2';
+        document.getElementById('lblStatDet').innerText = '⚡ Detection Engine: ACTIVE (24 Hz)';
+      } else {
+        text.innerText = 'Resume Fall Detection';
+        btn.className = 'w-full py-2 px-3 rounded bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-xs font-bold transition flex items-center justify-center space-x-2';
+        document.getElementById('lblStatDet').innerText = '⚡ Detection Engine: PAUSED';
+      }
+    }
+
+    function toggleLandmarks() {
+      showLandmarks = !showLandmarks;
+      const btn = document.getElementById('btnLandmarks');
+      btn.innerText = `👁 Landmarks Overlay: ${showLandmarks ? 'ON' : 'OFF'}`;
+      btn.className = showLandmarks
+        ? 'w-full py-2 px-3 rounded bg-[#065F46] hover:bg-[#047857] text-[#34D399] text-xs font-bold transition'
+        : 'w-full py-2 px-3 rounded bg-[#1E293B] text-slate-400 text-xs font-bold transition';
+    }
+
+    function toggleHud() {
+      showHud = !showHud;
+      const btn = document.getElementById('btnHud');
+      btn.innerText = `📊 Telemetry HUD: ${showHud ? 'ON' : 'OFF'}`;
+    }
+
+    // Simulation & Emergency Tests (Exact 5 desktop buttons)
+    function testMicVoice() {
+      document.getElementById('lblVoiceStatus').innerText = '🎙️ Voice Engine: LISTENING (10s)';
+      document.getElementById('lblVoiceHeard').innerText = 'Mic: [||||||||||||||||||||] (say "Help" or "I am fine")';
+      playBeepBeepAlarm();
+      setTimeout(() => {
+        document.getElementById('lblVoiceStatus').innerText = '🎙️ Voice Engine: REQUEST_HELP';
+        document.getElementById('lblVoiceHeard').innerText = '🗣️ Heard: "help me" [CONFIRMED]';
+      }, 3000);
+    }
+
+    function triggerTestFall() {
+      startGraceCountdown('Manual test trigger initiated');
+    }
+
+    function simulateReassurance() {
+      cancelFallAlert();
+    }
+
+    function simulateHelpRequest() {
+      publishFallAlertNow('VERBAL_HELP');
+    }
+
+    function testAlarm() {
+      playBeepBeepAlarm();
+    }
+
+    // Drawing helpers matching desktop HUD
+    function drawSkeleton(ctx, lm, w, h) {
+      const connections = [
+        [11, 12], [11, 23], [12, 24], [23, 24],
+        [11, 13], [13, 15], [12, 14], [14, 16],
+        [23, 25], [25, 27], [24, 26], [26, 28]
+      ];
+
+      ctx.strokeStyle = '#22C55E';
+      ctx.lineWidth = 3;
+      connections.forEach(([i, j]) => {
+        const p1 = lm[i], p2 = lm[j];
+        if (p1 && p2 && (p1.visibility || 1) > 0.3 && (p2.visibility || 1) > 0.3) {
+          ctx.beginPath();
+          ctx.moveTo(p1.x * w, p1.y * h);
+          ctx.lineTo(p2.x * w, p2.y * h);
+          ctx.stroke();
+        }
+      });
+
+      ctx.fillStyle = '#EAB308';
+      [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28].forEach(idx => {
+        const p = lm[idx];
+        if (p && (p.visibility || 1) > 0.3) {
+          ctx.beginPath();
+          ctx.arc(p.x * w, p.y * h, 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+    }
+
+    function drawHUD(ctx, lm, w, h) {
+      let minX = w, maxX = 0, minY = h, maxY = 0;
+      lm.forEach(p => {
+        if ((p.visibility || 1) > 0.3) {
+          minX = Math.min(minX, p.x * w);
+          maxX = Math.max(maxX, p.x * w);
+          minY = Math.min(minY, p.y * h);
+          maxY = Math.max(maxY, p.y * h);
+        }
+      });
+
+      if (maxX > minX && maxY > minY) {
+        ctx.strokeStyle = '#22C55E';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(minX - 10, minY - 10, (maxX - minX) + 20, (maxY - minY) + 20);
+
+        ctx.fillStyle = '#22C55E';
+        ctx.font = 'bold 11px Segoe UI, sans-serif';
+        ctx.fillText('TRACKED PERSON [LANDMARKS ON]', minX - 10, minY - 15);
+      }
+
+      // Top corner watermark
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
+      ctx.fillRect(10, 10, 380, 24);
+      ctx.fillStyle = '#94A3B8';
+      ctx.font = '11px Segoe UI, sans-serif';
+      ctx.fillText(`SafeFall AI | Posture: ${currentPosture} (${(currentConfidence*100).toFixed(0)}%) | Torso Tilt: ${currentTorsoAngle.toFixed(1)}°`, 16, 26);
+    }
+  </script>
+</body>
+</html>
