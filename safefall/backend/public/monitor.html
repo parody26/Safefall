@@ -79,31 +79,55 @@
           <div class="w-16 h-16 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400 text-3xl mb-3">
             📷
           </div>
-          <h3 class="text-base font-bold text-slate-200">SafeFall Optical Surveillance Camera</h3>
+          <h3 class="text-base font-bold text-slate-200">SafeFall Optical Surveillance Camera & Mic</h3>
           <p class="text-xs text-slate-400 max-w-sm mt-1 mb-4">
-            Click below to start live optical posture tracking and fall detection.
+            Click below to grant camera and microphone access for live pose tracking and voice verification.
           </p>
           <button onclick="startCamera()" class="px-6 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow transition flex items-center space-x-2">
             <span>▶</span>
-            <span>Enable Camera & Begin Monitoring</span>
+            <span>Enable Camera & Mic (Begin Monitoring)</span>
           </button>
         </div>
 
-        <!-- Grace Period Countdown Overlay -->
-        <div id="countdownOverlay" class="absolute inset-0 bg-red-950/80 backdrop-blur-sm border-4 border-red-600 hidden flex flex-col items-center justify-center p-6 text-center z-20 alert-strobe">
+        <!-- Phase 1: 3.0s Stillness Grace Period Overlay -->
+        <div id="graceOverlay" class="absolute inset-0 bg-red-950/80 backdrop-blur-sm border-4 border-red-600 hidden flex flex-col items-center justify-center p-6 text-center z-20 alert-strobe">
           <div class="text-4xl mb-2">🚨</div>
           <h2 class="text-xl font-bold text-white uppercase tracking-wider">SUSPECTED FALL DETECTED</h2>
-          <p id="countdownLabel" class="text-sm font-bold text-amber-300 my-2 font-mono">Grace Period: 3.0s (Verifying stillness...)</p>
-          <p class="text-xs text-slate-200 mb-4">Acoustic warning active. Listening for verbal reassurance...</p>
+          <p id="graceCountdownLabel" class="text-sm font-bold text-amber-300 my-2 font-mono">Grace Period: 3.0s (Verifying stillness...)</p>
+          <p class="text-xs text-slate-200 mb-4">Acoustic warning active. Stand up to cancel automatically, or click below.</p>
           <div class="flex space-x-3">
-            <button onclick="cancelFallAlert()" class="px-4 py-2 rounded bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold border border-slate-600">
+            <button onclick="cancelFallAlert('MANUAL_CANCEL', 'User clicked cancel')" class="px-4 py-2 rounded bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold border border-slate-600">
               ✋ Cancel Alert ("I'm Fine")
             </button>
-            <button onclick="publishFallAlertNow('VERBAL_HELP')" class="px-4 py-2 rounded bg-red-600 hover:bg-red-500 text-white text-xs font-bold">
-              🚨 Confirm Help Request
+            <button onclick="transitionToVoiceWindow()" class="px-4 py-2 rounded bg-red-600 hover:bg-red-500 text-white text-xs font-bold">
+              🎙️ Proceed to Voice Check
             </button>
           </div>
         </div>
+
+        <!-- Phase 2: Full 10.0s Voice Verification Window Overlay -->
+        <div id="voiceOverlay" class="absolute inset-0 bg-slate-950/85 backdrop-blur-sm border-4 border-amber-500 hidden flex flex-col items-center justify-center p-6 text-center z-20">
+          <div class="w-16 h-16 rounded-full bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center text-amber-300 text-3xl mb-2 animate-pulse">
+            🎙️
+          </div>
+          <h2 class="text-xl font-bold text-amber-300 uppercase tracking-wider">ELDER VOICE VERIFICATION ACTIVE</h2>
+          <p id="voiceCountdownLabel" class="text-base font-bold text-white my-1 font-mono">Listening Window: 10.0s remaining</p>
+          <p class="text-xs text-slate-300 max-w-md mb-2">
+            Speak now into your microphone: Say <span class="text-emerald-400 font-bold">"I am fine"</span> to dismiss the alarm, or <span class="text-rose-400 font-bold">"Help me"</span> to alert family immediately.
+          </p>
+          <div id="voiceLiveHeardBox" class="bg-[#1E293B] border border-slate-700 rounded-lg px-4 py-2 mb-4 w-full max-w-md text-xs font-mono text-sky-300">
+            🗣️ Heard: (listening for your voice...)
+          </div>
+          <div class="flex space-x-3">
+            <button onclick="cancelFallAlert('VERBAL_SAFE', 'I am fine')" class="px-5 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow">
+              ✋ Say "I am fine" (Cancel)
+            </button>
+            <button onclick="publishFallAlertNow('REQUEST_HELP', 'help me')" class="px-5 py-2 rounded bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow">
+              🚨 Say "Help me" (Confirm Alert)
+            </button>
+          </div>
+        </div>
+
       </div>
 
     </div>
@@ -137,7 +161,7 @@
           <div id="lblStatCam" class="text-[#22C55E]">📷 Camera: ONLINE (24 FPS)</div>
           <div id="lblStatMic" class="text-[#22C55E]">🎙️ Mic: ONLINE (Default Mic)</div>
           <div id="lblVoiceStatus" class="text-[#94A3B8]">🎙️ Voice Engine: READY</div>
-          <div id="lblVoiceHeard" class="text-[11px] text-[#64748B] font-mono">Mic: [||||||||||||||||||||] (idle)</div>
+          <div id="lblVoiceHeard" class="text-[11px] text-[#64748B] font-mono">Mic: [░░░░░░░░░░] (idle)</div>
           <div id="lblStatCloud" class="text-[#22C55E]">☁️ Cloud Sync: CONNECTED</div>
           <div id="lblStatDet" class="text-[#38BDF8]">⚡ Detection Engine: ACTIVE (24 Hz)</div>
         </div>
@@ -191,7 +215,7 @@
 
   </main>
 
-  <!-- JAVASCRIPT: EXACT ALGORITHM & STATE MACHINE FROM LOCAL CODE -->
+  <!-- JAVASCRIPT: EXACT ALGORITHM & STATE MACHINE WITH FULL MIC & WEB SPEECH INTEGRATION -->
   <script>
     const API_BASE = '/api/v1';
     let isMonitoring = true;
@@ -199,6 +223,7 @@
     let showHud = true;
     let cameraRunning = false;
     let videoStream = null;
+    let audioStream = null;
     let pose = null;
 
     // Kinematics and Posture (exact local python constants)
@@ -211,8 +236,59 @@
     let smoothedVy = 0.0;
     let consecutiveLyingFrames = 0;
     let isFallSuspected = false;
+    let isVoiceWindowActive = false;
     let graceTimer = null;
+    let voiceTimer = null;
     let audioCtx = null;
+    let micAnalyser = null;
+    let micDataArray = null;
+
+    // Real Web Speech Recognition (Google Chrome / Edge Speech API)
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let speechRecognizer = null;
+    let latestTranscript = '';
+
+    function initSpeechRecognizer() {
+      if (!SpeechRecognition) {
+        console.warn('Web Speech Recognition API not supported in this browser.');
+        return;
+      }
+      try {
+        speechRecognizer = new SpeechRecognition();
+        speechRecognizer.continuous = true;
+        speechRecognizer.interimResults = true;
+        speechRecognizer.lang = 'en-US';
+
+        speechRecognizer.onresult = (event) => {
+          let interim = '';
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            interim += event.results[i][0].transcript;
+          }
+          latestTranscript = interim.trim().toLowerCase();
+          handleSpokenText(latestTranscript);
+        };
+
+        speechRecognizer.onerror = (err) => {
+          console.warn('Speech recognition status:', err.error);
+        };
+      } catch(e) {
+        console.warn('SpeechRecognition init error:', e);
+      }
+    }
+
+    initSpeechRecognizer();
+
+    // Text-to-speech speaker confirmation
+    function speakAloud(text) {
+      if (!window.speechSynthesis) return;
+      try {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = 1.0;
+        u.pitch = 1.0;
+        window.speechSynthesis.speak(u);
+      } catch(e) {}
+    }
 
     // Web Audio Synthesizer: Exact acoustic beep-beep alarm
     function playBeepBeepAlarm() {
@@ -236,18 +312,59 @@
       } catch(e) {}
     }
 
-    // Camera Start
+    // Setup hardware microphone monitoring (RMS Volume Meter)
+    function setupMicAnalyser(stream) {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+
+        const source = audioCtx.createMediaStreamSource(stream);
+        micAnalyser = audioCtx.createAnalyser();
+        micAnalyser.fftSize = 64;
+        source.connect(micAnalyser);
+        micDataArray = new Uint8Array(micAnalyser.frequencyBinCount);
+
+        updateMicMeterLoop();
+      } catch(e) {
+        console.warn('Mic analyser setup error:', e);
+      }
+    }
+
+    function updateMicMeterLoop() {
+      if (!micAnalyser) return;
+      micAnalyser.getByteFrequencyData(micDataArray);
+      let sum = 0;
+      for (let i = 0; i < micDataArray.length; i++) sum += micDataArray[i];
+      let avg = sum / micDataArray.length;
+      let bars = Math.min(10, Math.max(0, Math.round(avg / 12)));
+      let barStr = "█".repeat(bars) + "░".repeat(10 - bars);
+
+      if (isVoiceWindowActive) {
+        document.getElementById('lblVoiceHeard').innerText = `Mic: [${barStr}] (Listening: say "Help" or "I am fine")`;
+        document.getElementById('lblVoiceHeard').className = 'text-[11px] text-[#22C55E] font-mono font-bold';
+      } else {
+        document.getElementById('lblVoiceHeard').innerText = `Mic: [${barStr}] (idle)`;
+        document.getElementById('lblVoiceHeard').className = 'text-[11px] text-[#64748B] font-mono';
+      }
+
+      requestAnimationFrame(updateMicMeterLoop);
+    }
+
+    // Start Camera & Microphone (Explicitly asks for both permissions!)
     async function startCamera() {
       const video = document.getElementById('webcamVideo');
       const canvas = document.getElementById('outputCanvas');
       const overlay = document.getElementById('startCameraOverlay');
 
       try {
+        // REQUEST BOTH CAMERA AND MICROPHONE PERMISSION!
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 640, height: 480, facingMode: 'user' },
-          audio: false
+          audio: true
         });
+
         videoStream = stream;
+        audioStream = stream;
         video.srcObject = stream;
         await video.play();
 
@@ -256,9 +373,18 @@
         overlay.classList.add('hidden');
         cameraRunning = true;
 
+        // Set Hardware Status Badges
+        document.getElementById('lblStatCam').innerText = '📷 Camera: ONLINE (24 FPS)';
+        document.getElementById('lblStatMic').innerText = '🎙️ Mic: ONLINE (Hardware Active)';
+        document.getElementById('lblStatMic').className = 'text-[#22C55E] font-bold';
+
+        // Connect microphone to audio meter
+        setupMicAnalyser(stream);
+
+        // Start Pose Detector
         initPose(video, canvas);
       } catch(err) {
-        alert('Could not access camera: ' + err.message);
+        alert('Permission Error: ' + err.message + '\nPlease grant CAMERA and MICROPHONE access in your browser so SafeFall can track falls and listen for voice verification.');
       }
     }
 
@@ -300,7 +426,6 @@
     function onResults(results, ctx, canvas, video) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Draw mirrored video
       ctx.save();
       ctx.scale(-1, 1);
       ctx.drawImage(results.image, -canvas.width, 0, canvas.width, canvas.height);
@@ -349,7 +474,6 @@
       const dy = (shoulderY - hipY) * h;
       const torsoAngle = Math.abs(Math.atan2(dx, -dy) * (180 / Math.PI));
 
-      // Posture classification
       let posture = 'STANDING';
       let conf = 0.94;
       if (torsoAngle > 55 || torsoY > 0.75) {
@@ -366,24 +490,30 @@
 
       updatePostureUI(posture, conf, torsoAngle);
 
-      // Dynamic activity classification
+      // If person stood back up during grace or voice window -> RECOVERED NATURALLY!
+      if ((isFallSuspected || isVoiceWindowActive) && (posture === 'STANDING' || posture === 'SITTING')) {
+        cancelFallAlert('RECOVERED_NATURALLY', 'Subject stood up on their own');
+        return;
+      }
+
+      // Fall Detection Criteria
       if (smoothedVy > 160 && posture === 'LYING') {
         consecutiveLyingFrames++;
-        if (consecutiveLyingFrames >= 3 && !isFallSuspected) {
+        if (consecutiveLyingFrames >= 3 && !isFallSuspected && !isVoiceWindowActive) {
           startGraceCountdown('High velocity vertical collapse detected');
         }
       } else if (posture === 'LYING' && torsoY > 0.75) {
         consecutiveLyingFrames++;
-        if (consecutiveLyingFrames > 18 && !isFallSuspected) {
+        if (consecutiveLyingFrames > 18 && !isFallSuspected && !isVoiceWindowActive) {
           startGraceCountdown('Prolonged floor-level lying posture');
         }
       } else {
         consecutiveLyingFrames = Math.max(0, consecutiveLyingFrames - 1);
-        if (!isFallSuspected) {
+        if (!isFallSuspected && !isVoiceWindowActive) {
           document.getElementById('lblActivityState').innerText = 'NORMAL_MOVEMENT';
           document.getElementById('lblActivityState').className = 'text-sm font-bold text-[#22C55E]';
           document.getElementById('lblKinematics').innerText = `Vy: ${(smoothedVy/100).toFixed(2)} | w: ${torsoAngle.toFixed(1)}°/s | Smooth: 0.02`;
-          document.getElementById('lblTriggerReason').innerText = 'Reason: Confirming lying posture (0.00s < 0.30s)';
+          document.getElementById('lblTriggerReason').innerText = 'Reason: Baseline continuous monitoring';
         }
       }
     }
@@ -398,15 +528,20 @@
       document.getElementById('lblConfidence').innerText = `Confidence: ${(conf * 100).toFixed(0)}% | Torso Angle: ${angle.toFixed(1)}°`;
     }
 
+    // -------------------------------------------------------------
+    // TWO-PHASE FALL ESCALATION PROTOCOL (Exact matching local code)
+    // -------------------------------------------------------------
+
+    // Phase 1: 3.0-Second Stillness Grace Period
     function startGraceCountdown(reason) {
       isFallSuspected = true;
-      document.getElementById('countdownOverlay').classList.remove('hidden');
+      document.getElementById('graceOverlay').classList.remove('hidden');
       document.getElementById('lblActivityState').innerText = 'SUSPECTED_FALL';
       document.getElementById('lblActivityState').className = 'text-sm font-bold text-[#EF4444]';
       document.getElementById('lblTriggerReason').innerText = `Reason: ${reason}`;
 
-      document.getElementById('lblVoiceStatus').innerText = '🎙️ Voice Engine: REQUEST_HELP';
-      document.getElementById('lblVoiceStatus').className = 'text-[#EF4444] font-bold';
+      document.getElementById('lblVoiceStatus').innerText = '🎙️ Voice Engine: PENDING_GRACE';
+      document.getElementById('lblVoiceStatus').className = 'text-[#F59E0B] font-bold';
 
       playBeepBeepAlarm();
       let timeLeft = 3.0;
@@ -416,29 +551,109 @@
         playBeepBeepAlarm();
         if (timeLeft <= 0) {
           clearInterval(graceTimer);
-          publishFallAlertNow('NO_RESPONSE');
+          // Transition to Phase 2: FULL 10-SECOND VOICE WINDOW!
+          transitionToVoiceWindow();
         } else {
-          document.getElementById('countdownLabel').innerText = `Grace Period: ${timeLeft.toFixed(1)}s (Verifying stillness...)`;
+          document.getElementById('graceCountdownLabel').innerText = `Grace Period: ${timeLeft.toFixed(1)}s (Verifying stillness...)`;
         }
       }, 500);
     }
 
-    function cancelFallAlert() {
+    // Phase 2: Full 10.0-Second Voice Evaluation Window
+    function transitionToVoiceWindow() {
       if (graceTimer) clearInterval(graceTimer);
+      document.getElementById('graceOverlay').classList.add('hidden');
+      document.getElementById('voiceOverlay').classList.remove('hidden');
+
       isFallSuspected = false;
-      document.getElementById('countdownOverlay').classList.add('hidden');
+      isVoiceWindowActive = true;
+      latestTranscript = '';
+
+      document.getElementById('lblVoiceStatus').innerText = '🎙️ Voice Engine: LISTENING (10s)';
+      document.getElementById('lblVoiceStatus').className = 'text-[#38BDF8] font-bold animate-pulse';
+      document.getElementById('voiceLiveHeardBox').innerText = '🗣️ Heard: (listening for your voice...)';
+
+      // Speak prompt through speaker
+      speakAloud("SafeFall detected a fall. Are you okay? Say 'I am fine' or 'Help me'.");
+
+      // Activate real microphone speech recognition
+      if (speechRecognizer) {
+        try { speechRecognizer.start(); } catch(e) {}
+      }
+
+      let voiceTimeLeft = 10.0;
+      document.getElementById('voiceCountdownLabel').innerText = `Listening Window: ${voiceTimeLeft.toFixed(1)}s remaining`;
+
+      voiceTimer = setInterval(() => {
+        voiceTimeLeft -= 0.5;
+        if (voiceTimeLeft <= 0) {
+          clearInterval(voiceTimer);
+          // 10s expired with no response -> Trigger Emergency under unconscious elder protocol!
+          publishFallAlertNow('NO_RESPONSE', '[10.0s Timeout Expired - No Verbal Response]');
+        } else {
+          document.getElementById('voiceCountdownLabel').innerText = `Listening Window: ${voiceTimeLeft.toFixed(1)}s remaining`;
+        }
+      }, 500);
+    }
+
+    // Speech Intent Classifier
+    function handleSpokenText(text) {
+      if (!isVoiceWindowActive) return;
+      document.getElementById('voiceLiveHeardBox').innerText = `🗣️ Heard: "${text}"`;
+      document.getElementById('lblVoiceHeard').innerText = `🗣️ Heard: "${text}"`;
+
+      // 1. Reassurance / Cancel intent
+      const safeRegex = /(i('m| am) fine|i('m| am) okay|all good|no help|fine|okay|cancel|false alarm|stop|don't help|dont help)/i;
+      if (safeRegex.test(text)) {
+        cancelFallAlert('VERBAL_SAFE', text);
+        return;
+      }
+
+      // 2. Help / Emergency intent
+      const helpRegex = /(help|help me|i fell|i fell down|cannot get up|can't get up|call 911|call ambulance|emergency|it hurts|pain)/i;
+      if (helpRegex.test(text)) {
+        publishFallAlertNow('REQUEST_HELP', text);
+        return;
+      }
+    }
+
+    function cancelFallAlert(intent, transcript) {
+      if (graceTimer) clearInterval(graceTimer);
+      if (voiceTimer) clearInterval(voiceTimer);
+      isFallSuspected = false;
+      isVoiceWindowActive = false;
+
+      if (speechRecognizer) {
+        try { speechRecognizer.stop(); } catch(e) {}
+      }
+
+      document.getElementById('graceOverlay').classList.add('hidden');
+      document.getElementById('voiceOverlay').classList.add('hidden');
+
       document.getElementById('alertBanner').className = 'bg-[#242B35] rounded-t-lg px-4 py-2.5 flex items-center justify-between border border-[#2D3748] border-b-0';
       document.getElementById('bannerDot').className = 'w-3 h-3 rounded-full bg-[#22C55E]';
       document.getElementById('bannerText').innerText = 'SYSTEM NORMAL — Continuous surveillance active';
       document.getElementById('bannerText').className = 'text-xs font-bold text-[#22C55E] tracking-wide';
+
       document.getElementById('lblVoiceStatus').innerText = '🎙️ Voice Engine: NORMAL_CONFIRMED';
       document.getElementById('lblVoiceStatus').className = 'text-[#22C55E]';
-      document.getElementById('lblVoiceHeard').innerText = '🗣️ Heard: "I am fine" (Alert dismissed)';
+      document.getElementById('lblVoiceHeard').innerText = `🗣️ Heard: "${transcript}" (Alarm Dismissed)`;
+
+      speakAloud("Alarm cancelled. Confirmed safe.");
     }
 
-    async function publishFallAlertNow(voiceIntent) {
+    async function publishFallAlertNow(voiceIntent, transcript) {
       if (graceTimer) clearInterval(graceTimer);
-      document.getElementById('countdownOverlay').classList.add('hidden');
+      if (voiceTimer) clearInterval(voiceTimer);
+      isFallSuspected = false;
+      isVoiceWindowActive = false;
+
+      if (speechRecognizer) {
+        try { speechRecognizer.stop(); } catch(e) {}
+      }
+
+      document.getElementById('graceOverlay').classList.add('hidden');
+      document.getElementById('voiceOverlay').classList.add('hidden');
 
       const incId = 'inc_' + Math.random().toString(36).substring(2, 10);
       const canvas = document.getElementById('outputCanvas');
@@ -452,12 +667,14 @@
       bText.innerText = `EMERGENCY PUBLISHED TO FAMILY — Incident ID: ${incId}`;
       bText.className = 'text-xs font-extrabold text-white tracking-wide uppercase';
 
-      const voiceTxt = voiceIntent === 'NO_RESPONSE' ? '' : 'help me';
+      const voiceTxt = transcript || (voiceIntent === 'NO_RESPONSE' ? '' : 'help me');
       const voiceStat = voiceIntent === 'NO_RESPONSE' ? 'NO_RESPONSE' : 'REQUEST_HELP';
 
       document.getElementById('lblVoiceStatus').innerText = `🎙️ Voice Engine: ${voiceStat}`;
       document.getElementById('lblVoiceStatus').className = 'text-[#EF4444] font-bold';
-      document.getElementById('lblVoiceHeard').innerText = `🗣️ Heard: "${voiceTxt || '(no response)'}"`;
+      document.getElementById('lblVoiceHeard').innerText = `🗣️ Heard: "${voiceTxt || '(no verbal response)'}"`;
+
+      speakAloud("Emergency confirmed. Alert sent to family.");
 
       const payload = {
         incidentId: incId,
@@ -475,7 +692,7 @@
         evidenceBase64: b64
       };
 
-      // Save to localStorage so Family App picks it up instantly
+      // Save to localStorage so Family App receives it immediately
       let store = [];
       try {
         const existing = localStorage.getItem('safefall_incidents_store');
@@ -530,31 +747,40 @@
     // Simulation & Emergency Tests (Exact 5 desktop buttons)
     function testMicVoice() {
       document.getElementById('lblVoiceStatus').innerText = '🎙️ Voice Engine: LISTENING (10s)';
-      document.getElementById('lblVoiceHeard').innerText = 'Mic: [||||||||||||||||||||] (say "Help" or "I am fine")';
-      playBeepBeepAlarm();
+      document.getElementById('lblVoiceHeard').innerText = 'Mic: [████████░░] (Say "Help" or "I am fine")';
+      speakAloud("SafeFall voice diagnostic check. Please say 'Help' or 'I am fine'.");
+
+      if (speechRecognizer) {
+        try { speechRecognizer.start(); } catch(e) {}
+      }
+
+      isVoiceWindowActive = true;
       setTimeout(() => {
-        document.getElementById('lblVoiceStatus').innerText = '🎙️ Voice Engine: REQUEST_HELP';
-        document.getElementById('lblVoiceHeard').innerText = '🗣️ Heard: "help me" [CONFIRMED]';
-      }, 3000);
+        if (isVoiceWindowActive) {
+          isVoiceWindowActive = false;
+          document.getElementById('lblVoiceStatus').innerText = '🎙️ Voice Engine: READY';
+          document.getElementById('lblVoiceHeard').innerText = 'Mic: [░░░░░░░░░░] (idle)';
+        }
+      }, 10000);
     }
 
     function triggerTestFall() {
-      startGraceCountdown('Manual test trigger initiated');
+      startGraceCountdown('Manual test trigger initiated (3s grace -> 10s voice check)');
     }
 
     function simulateReassurance() {
-      cancelFallAlert();
+      cancelFallAlert('VERBAL_SAFE', 'I am fine');
     }
 
     function simulateHelpRequest() {
-      publishFallAlertNow('VERBAL_HELP');
+      publishFallAlertNow('REQUEST_HELP', 'Help me please!');
     }
 
     function testAlarm() {
       playBeepBeepAlarm();
     }
 
-    // Drawing helpers matching desktop HUD
+    // Skeleton drawing
     function drawSkeleton(ctx, lm, w, h) {
       const connections = [
         [11, 12], [11, 23], [12, 24], [23, 24],
@@ -606,7 +832,6 @@
         ctx.fillText('TRACKED PERSON [LANDMARKS ON]', minX - 10, minY - 15);
       }
 
-      // Top corner watermark
       ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
       ctx.fillRect(10, 10, 380, 24);
       ctx.fillStyle = '#94A3B8';
