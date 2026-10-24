@@ -1119,6 +1119,9 @@
       speakAloud("Alarm cancelled. Confirmed safe.");
     }
 
+    let activeIncidentId = null;
+    let incidentAcknowledgedHandled = false;
+
     async function publishFallAlertNow(voiceIntent, transcript) {
       if (graceTimer) clearInterval(graceTimer);
       if (voiceTimer) clearInterval(voiceTimer);
@@ -1133,8 +1136,11 @@
       document.getElementById('voiceOverlay').classList.add('hidden');
 
       const incId = 'inc_' + Math.random().toString(36).substring(2, 10);
+      activeIncidentId = incId;
+      incidentAcknowledgedHandled = false;
+
       const canvas = document.getElementById('outputCanvas');
-      const b64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+      const b64 = canvas ? canvas.toDataURL('image/jpeg', 0.85).split(',')[1] : '';
 
       const banner = document.getElementById('alertBanner');
       banner.className = 'bg-[#DC2626] rounded-t-lg px-4 py-2.5 flex items-center justify-between border border-red-700 border-b-0 alert-strobe';
@@ -1186,6 +1192,142 @@
         });
       } catch(e) {}
     }
+
+    // -------------------------------------------------------------
+    // REMOTE INCIDENT SYNCHRONIZATION & AUTO-DISABLING EMERGENCY BANNER
+    // -------------------------------------------------------------
+    function disableEmergencyBanner(inc) {
+      const banner = document.getElementById('alertBanner');
+      const bText = document.getElementById('bannerText');
+      const bDot = document.getElementById('bannerDot');
+      if (!banner || !bText || !bDot) return;
+
+      // 1. Immediately disable the emergency banner styling & strobe
+      banner.className = 'bg-[#242B35] rounded-t-lg px-4 py-2.5 flex items-center justify-between border border-[#2D3748] border-b-0';
+      bDot.className = 'w-3 h-3 rounded-full bg-[#22C55E]';
+      bText.className = 'text-xs font-bold text-[#22C55E] tracking-wide';
+
+      const actor = inc ? (inc.resolvedBy || 'Family') : 'Family';
+      const note = inc && inc.resolutionNote ? ` ("${inc.resolutionNote}")` : '';
+      bText.innerText = `SYSTEM NORMAL — Incident resolved by ${actor}${note}`;
+
+      // 2. Hide emergency overlays and cancel grace/voice timers
+      document.getElementById('graceOverlay').classList.add('hidden');
+      document.getElementById('voiceOverlay').classList.add('hidden');
+      if (graceTimer) clearInterval(graceTimer);
+      if (voiceTimer) clearInterval(voiceTimer);
+      isFallSuspected = false;
+      isVoiceWindowActive = false;
+
+      // 3. Reset voice engine and activity classifier state
+      document.getElementById('lblVoiceStatus').innerText = '🎙️ Voice Engine: READY';
+      document.getElementById('lblVoiceStatus').className = 'text-[#94A3B8]';
+      document.getElementById('lblVoiceHeard').innerText = 'Mic: [░░░░░░░░░░] (idle)';
+
+      if (typeof activityClassifier !== 'undefined' && activityClassifier.reset) {
+        activityClassifier.reset();
+      }
+
+      speakAloud(`Incident resolved by ${actor}. Emergency cleared.`);
+
+      // 4. Reset banner text to continuous surveillance after 4 seconds
+      setTimeout(() => {
+        if (!activeIncidentId) {
+          bText.innerText = 'SYSTEM NORMAL — Continuous surveillance active';
+        }
+      }, 4000);
+
+      activeIncidentId = null;
+      incidentAcknowledgedHandled = false;
+    }
+
+    function processIncidentRemoteState(inc) {
+      if (!inc) return;
+
+      if (inc.incidentStatus === 'ACKNOWLEDGED' && !incidentAcknowledgedHandled) {
+        incidentAcknowledgedHandled = true;
+        const actor = inc.acknowledgedBy || 'Caregiver';
+        const banner = document.getElementById('alertBanner');
+        banner.className = 'bg-[#1D4ED8] rounded-t-lg px-4 py-2.5 flex items-center justify-between border border-blue-600 border-b-0';
+        document.getElementById('bannerDot').className = 'w-3 h-3 rounded-full bg-blue-300 animate-pulse';
+        const bText = document.getElementById('bannerText');
+        bText.innerText = `EMERGENCY ACKNOWLEDGED BY FAMILY (${actor}) — Help is on the way`;
+        bText.className = 'text-xs font-bold text-white tracking-wide uppercase';
+
+        document.getElementById('lblVoiceStatus').innerText = '🎙️ Voice Engine: ACKNOWLEDGED';
+        document.getElementById('lblVoiceStatus').className = 'text-[#38BDF8] font-bold';
+      } else if (inc.incidentStatus === 'RESOLVED') {
+        disableEmergencyBanner(inc);
+      }
+    }
+
+    async function syncActiveIncidentStatus() {
+      // 1. Check local storage first (instant same-browser cross-tab response)
+      try {
+        const store = JSON.parse(localStorage.getItem('safefall_incidents_store') || '[]');
+        if (activeIncidentId) {
+          const inc = store.find(i => i.incidentId === activeIncidentId);
+          if (inc && (inc.incidentStatus === 'RESOLVED' || inc.incidentStatus === 'ACKNOWLEDGED')) {
+            processIncidentRemoteState(inc);
+            if (inc.incidentStatus === 'RESOLVED') return;
+          }
+        }
+      } catch(e) {}
+
+      // 2. Poll remote API (cross-device network support)
+      try {
+        if (activeIncidentId) {
+          const resp = await fetch(`${API_BASE}/incidents/${activeIncidentId}`);
+          if (resp.ok) {
+            const inc = await resp.json();
+            processIncidentRemoteState(inc);
+            return;
+          }
+        }
+
+        // If the emergency banner is currently showing red (alert-strobe), check recent incidents
+        const banner = document.getElementById('alertBanner');
+        if (banner && (banner.classList.contains('alert-strobe') || banner.classList.contains('bg-[#DC2626]'))) {
+          const listResp = await fetch(`${API_BASE}/incidents`);
+          if (listResp.ok) {
+            const data = await listResp.json();
+            const incs = data.incidents || [];
+            if (incs.length > 0) {
+              const latest = incs[0];
+              if (latest.incidentStatus === 'RESOLVED') {
+                disableEmergencyBanner(latest);
+              } else if (latest.incidentStatus === 'ACKNOWLEDGED') {
+                processIncidentRemoteState(latest);
+              }
+            }
+          }
+        }
+      } catch(e) {}
+    }
+
+    // Cross-tab storage listener: immediately disables emergency banner if resolved in another tab
+    window.addEventListener('storage', (event) => {
+      if (event.key === 'safefall_incidents_store' && event.newValue) {
+        try {
+          const store = JSON.parse(event.newValue);
+          if (activeIncidentId) {
+            const inc = store.find(i => i.incidentId === activeIncidentId);
+            if (inc) processIncidentRemoteState(inc);
+          } else {
+            const latest = store[0];
+            if (latest && latest.incidentStatus === 'RESOLVED') {
+              const banner = document.getElementById('alertBanner');
+              if (banner && (banner.classList.contains('alert-strobe') || banner.classList.contains('bg-[#DC2626]'))) {
+                disableEmergencyBanner(latest);
+              }
+            }
+          }
+        } catch(e) {}
+      }
+    });
+
+    // Start background sync loop (every 1.5 seconds)
+    setInterval(syncActiveIncidentStatus, 1500);
 
     // Monitoring Controls
     function toggleDetection() {
