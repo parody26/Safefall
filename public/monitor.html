@@ -6,7 +6,7 @@
   <title>SafeFall — AI Fall Detection Monitoring Station</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.gstatic.com">
   <link href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
@@ -81,7 +81,7 @@
           </div>
           <h3 class="text-base font-bold text-slate-200">SafeFall Optical Surveillance Camera & Mic</h3>
           <p class="text-xs text-slate-400 max-w-sm mt-1 mb-4">
-            Click below to grant camera and microphone access for live pose tracking and voice verification.
+            Click below to grant camera and microphone access. Powered by the trained multi-state activity & temporal kinematic fall classification engine.
           </p>
           <button onclick="startCamera()" class="px-6 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow transition flex items-center space-x-2">
             <span>▶</span>
@@ -215,7 +215,7 @@
 
   </main>
 
-  <!-- JAVASCRIPT: EXACT ALGORITHM & STATE MACHINE WITH FULL MIC & WEB SPEECH INTEGRATION -->
+  <!-- JAVASCRIPT: EXACT PORT OF LOCAL PYTHON BIOMECHANICAL & KINEMATIC FALL ALGORITHM -->
   <script>
     const API_BASE = '/api/v1';
     let isMonitoring = true;
@@ -223,18 +223,357 @@
     let showHud = true;
     let cameraRunning = false;
     let videoStream = null;
-    let audioStream = null;
     let pose = null;
 
-    // Kinematics and Posture (exact local python constants)
+    // -------------------------------------------------------------
+    // EXACT PORT OF LOCAL PYTHON KINEMATIC & ACTIVITY ENGINE
+    // -------------------------------------------------------------
+    
+    // MediaPipe indices:
+    const L_SHOULDER = 11, R_SHOULDER = 12;
+    const L_HIP = 23, R_HIP = 24;
+    const L_KNEE = 25, R_KNEE = 26;
+    const L_ANKLE = 27, R_ANKLE = 28;
+
+    function calculateAngle3Points(p1, p2, p3) {
+      const v1 = { x: p1.x - p2.x, y: p1.y - p2.y };
+      const v2 = { x: p3.x - p2.x, y: p3.y - p2.y };
+      const dot = v1.x * v2.x + v1.y * v2.y;
+      const mag1 = Math.hypot(v1.x, v1.y);
+      const mag2 = Math.hypot(v2.x, v2.y);
+      if (mag1 * mag2 < 1e-6) return 180.0;
+      const cosVal = Math.max(-1.0, Math.min(1.0, dot / (mag1 * mag2)));
+      return Math.acos(cosVal) * (180.0 / Math.PI);
+    }
+
+    // 1. Geometric Features Extractor (Exact matching landmarks.py)
+    function extractGeometricFeatures(lm) {
+      if (!lm || lm.length < 29) return null;
+
+      const l_sh = lm[L_SHOULDER], r_sh = lm[R_SHOULDER];
+      const l_hp = lm[L_HIP], r_hp = lm[R_HIP];
+      const l_kn = lm[L_KNEE], r_kn = lm[R_KNEE];
+      const l_ak = lm[L_ANKLE], r_ak = lm[R_ANKLE];
+
+      const keyPts = [l_sh, r_sh, l_hp, r_hp, l_kn, r_kn, l_ak, r_ak];
+      const meanVis = keyPts.reduce((s, p) => s + (p.visibility || 1.0), 0) / keyPts.length;
+
+      const sh_mid_x = (l_sh.x + r_sh.x) / 2.0;
+      const sh_mid_y = (l_sh.y + r_sh.y) / 2.0;
+      const hp_mid_x = (l_hp.x + r_hp.x) / 2.0;
+      const hp_mid_y = (l_hp.y + r_hp.y) / 2.0;
+
+      const dx = sh_mid_x - hp_mid_x;
+      const dy = sh_mid_y - hp_mid_y;
+
+      // Torso angle: 0 = upright vertical, 90 = horizontal
+      const torsoAngleDeg = Math.abs(Math.atan2(Math.abs(dx), Math.max(1e-6, Math.abs(dy)))) * (180.0 / Math.PI);
+
+      const allX = keyPts.map(p => p.x);
+      const allY = keyPts.map(p => p.y);
+      const minX = Math.min(...allX), maxX = Math.max(...allX);
+      const minY = Math.min(...allY), maxY = Math.max(...allY);
+      const width = Math.max(1e-4, maxX - minX);
+      const height = Math.max(1e-4, maxY - minY);
+      const aspectRatio = width / height;
+
+      const lKneeAngle = calculateAngle3Points(l_hp, l_kn, l_ak);
+      const rKneeAngle = calculateAngle3Points(r_hp, r_kn, r_ak);
+
+      return {
+        torsoAngleDeg,
+        aspectRatio,
+        relativeHipHeight: hp_mid_y,
+        leftKneeFlexionDeg: lKneeAngle,
+        rightKneeFlexionDeg: rKneeAngle,
+        meanVisibility: meanVis,
+        bodyCenter: [(minX + maxX) / 2.0, (minY + maxY) / 2.0],
+        bbox: [minX, minY, maxX, maxY]
+      };
+    }
+
+    // 2. Posture Classifier (Exact matching posture_classifier.py)
+    function classifyPosture(feat) {
+      if (!feat || feat.meanVisibility < 0.30) {
+        return { posture: 'UNKNOWN', confidence: 0.20 };
+      }
+
+      const torsoAngle = feat.torsoAngleDeg;
+      const ar = feat.aspectRatio;
+      const avgKnee = (feat.leftKneeFlexionDeg + feat.rightKneeFlexionDeg) / 2.0;
+      const hipY = feat.relativeHipHeight;
+
+      // LYING: Torso is predominantly horizontal (>= 48 deg) OR bounding box is wide near floor
+      if (torsoAngle >= 48.0 || (ar >= 1.05 && hipY > 0.60)) {
+        const conf = Math.min(0.99, Math.max(0.60, (torsoAngle / 90.0) * 0.7 + (ar / 2.0) * 0.3));
+        return { posture: 'LYING', confidence: conf };
+      }
+
+      // STANDING: Torso upright, tall bounding box (ar <= 0.85), extended knees
+      if (torsoAngle <= 35.0 && ar <= 0.85) {
+        if (avgKnee > 140.0) {
+          const conf = Math.min(0.98, Math.max(0.75, (1.0 - torsoAngle / 90.0) * 0.6 + (avgKnee / 180.0) * 0.4));
+          return { posture: 'STANDING', confidence: conf };
+        }
+      }
+
+      // SITTING: Torso upright, bent knees (60 <= avgKnee <= 140), intermediate aspect ratio
+      if (torsoAngle <= 48.0 && avgKnee >= 60.0 && avgKnee <= 140.0) {
+        const conf = Math.min(0.95, Math.max(0.65, 0.5 + 0.5 * (1.0 - Math.abs(avgKnee - 95.0) / 45.0)));
+        return { posture: 'SITTING', confidence: conf };
+      }
+
+      if (ar < 0.85 && torsoAngle < 40.0) {
+        return { posture: 'STANDING', confidence: 0.70 };
+      }
+
+      if (ar >= 0.80 && ar <= 1.25 && torsoAngle < 55.0) {
+        return { posture: 'SITTING', confidence: 0.68 };
+      }
+
+      return { posture: 'UNKNOWN', confidence: 0.50 };
+    }
+
+    // 3. Sliding Window Kinematic Feature Buffer (Exact matching temporal_features.py)
+    class KinematicBuffer {
+      constructor(maxLen = 25) {
+        this.maxLen = maxLen;
+        this.frames = [];
+      }
+
+      add(timestamp, feat) {
+        if (!feat) return null;
+        this.frames.push({
+          timestamp,
+          torsoAngleDeg: feat.torsoAngleDeg,
+          relativeHipHeight: feat.relativeHipHeight,
+          aspectRatio: feat.aspectRatio,
+          bodyCenter: feat.bodyCenter,
+          meanVisibility: feat.meanVisibility
+        });
+        if (this.frames.length > this.maxLen) {
+          this.frames.shift();
+        }
+        if (this.frames.length < 2) return null;
+        return this.computeMetrics();
+      }
+
+      computeMetrics() {
+        const frames = this.frames;
+        const curr = frames[frames.length - 1];
+        const prev = frames[frames.length - 2];
+        const dt = Math.max(1e-4, curr.timestamp - prev.timestamp);
+
+        // Instantaneous normalized vertical velocity
+        const downwardHipVel = (curr.relativeHipHeight - prev.relativeHipHeight) / dt;
+        const angularVel = Math.abs(curr.torsoAngleDeg - prev.torsoAngleDeg) / dt;
+
+        // Windowed peak velocities across rolling observations
+        let peakV = downwardHipVel;
+        let peakW = angularVel;
+        let peakA = 0.0;
+
+        for (let i = 1; i < frames.length; i++) {
+          const fa = frames[i - 1], fb = frames[i];
+          const dtStep = Math.max(1e-4, fb.timestamp - fa.timestamp);
+          const stepV = (fb.relativeHipHeight - fa.relativeHipHeight) / dtStep;
+          const stepW = Math.abs(fb.torsoAngleDeg - fa.torsoAngleDeg) / dtStep;
+          if (stepV > peakV) peakV = stepV;
+          if (stepW > peakW) peakW = stepW;
+        }
+
+        // Acceleration
+        if (frames.length >= 3) {
+          const prev2 = frames[frames.length - 3];
+          const dtPrev = Math.max(1e-4, prev.timestamp - prev2.timestamp);
+          const prevVel = (prev.relativeHipHeight - prev2.relativeHipHeight) / dtPrev;
+          peakA = Math.max(0.0, (downwardHipVel - prevVel) / dt);
+        }
+
+        // Trajectory smoothness (variance across window)
+        const velSamples = [];
+        for (let i = 1; i < frames.length; i++) {
+          const fa = frames[i - 1], fb = frames[i];
+          const dtStep = Math.max(1e-4, fb.timestamp - fa.timestamp);
+          velSamples.push((fb.relativeHipHeight - fa.relativeHipHeight) / dtStep);
+        }
+        const meanVel = velSamples.reduce((a, b) => a + b, 0) / velSamples.length;
+        const variance = velSamples.reduce((s, v) => s + (v - meanVel) ** 2, 0) / velSamples.length;
+        const smoothness = 1.0 / (1.0 + variance * 100.0);
+
+        return {
+          timestamp: curr.timestamp,
+          downwardHipVelocity: downwardHipVel,
+          angularVelocityDegS: angularVel,
+          peakDownwardVelocity: peakV,
+          peakAngularVelocity: peakW,
+          peakDownwardAcceleration: peakA,
+          trajectorySmoothness: smoothness,
+          motionEnergy: Math.hypot(curr.bodyCenter[0] - prev.bodyCenter[0], curr.bodyCenter[1] - prev.bodyCenter[1])
+        };
+      }
+    }
+
+    // 4. Dynamic Activity Classifier (Exact matching activity_classifier.py)
+    class ActivityClassifier {
+      constructor() {
+        this.priorPosture = 'STANDING';
+        this.priorPostureTime = 0.0;
+        this.lyingStartTime = null;
+        this.lastState = 'NORMAL_MOVEMENT';
+      }
+
+      evaluate(posture, postureConf, metrics, timestamp) {
+        const now = timestamp;
+
+        if (posture === 'STANDING' || posture === 'SITTING') {
+          this.priorPosture = posture;
+          this.priorPostureTime = now;
+          this.lyingStartTime = null;
+        }
+
+        if (postureConf < 0.35 || posture === 'UNKNOWN') {
+          return {
+            state: 'UNCERTAIN',
+            confidence: postureConf,
+            reason: 'Body occluded or low confidence tracking',
+            isFall: false
+          };
+        }
+
+        if (!metrics) {
+          return {
+            state: 'NORMAL_MOVEMENT',
+            confidence: postureConf,
+            reason: `Calibrating baseline kinematics (${posture})`,
+            isFall: false
+          };
+        }
+
+        // Upward movement
+        if (metrics.downwardHipVelocity < -0.05 && (posture === 'STANDING' || posture === 'SITTING')) {
+          this.lastState = 'GETTING_UP';
+          return {
+            state: 'GETTING_UP',
+            confidence: 0.90,
+            reason: `Upward vertical velocity (${metrics.downwardHipVelocity.toFixed(2)} norm/s)`,
+            isFall: false
+          };
+        }
+
+        // Controlled Sitting Down (Torso upright, ending in sitting)
+        if (posture === 'SITTING') {
+          this.lastState = 'SITTING_DOWN';
+          return {
+            state: 'SITTING_DOWN',
+            confidence: 0.92,
+            reason: 'Controlled descent into chair/sofa',
+            isFall: false
+          };
+        }
+
+        // Lying posture evaluation
+        if (posture === 'LYING') {
+          if (this.lyingStartTime === null) {
+            this.lyingStartTime = now;
+          }
+          const lyingDuration = Math.max(0.0, now - this.lyingStartTime);
+
+          // Confirmation window: must stay lying for at least 0.30s
+          if (lyingDuration < 0.30) {
+            return {
+              state: 'NORMAL_MOVEMENT',
+              confidence: postureConf,
+              reason: `Confirming lying posture (${lyingDuration.toFixed(2)}s < 0.30s)`,
+              isFall: false
+            };
+          }
+
+          // Prolonged resting or sleeping on surface
+          if (lyingDuration >= 2.0 && metrics.motionEnergy < 0.04 && this.lastState !== 'SUSPECTED_FALL') {
+            this.lastState = 'LYING_OR_SLEEPING';
+            return {
+              state: 'LYING_OR_SLEEPING',
+              confidence: postureConf,
+              reason: `Resting/sleeping on surface (lying: ${lyingDuration.toFixed(1)}s)`,
+              isFall: false
+            };
+          }
+
+          // Slow intentional settling down (transition > 2.2s)
+          const timeSincePrior = now - this.priorPostureTime;
+          if (timeSincePrior > 2.2) {
+            this.lastState = 'INTENTIONAL_LYING_DOWN';
+            return {
+              state: 'INTENTIONAL_LYING_DOWN',
+              confidence: 0.88,
+              reason: `Slow controlled settling down (${timeSincePrior.toFixed(1)}s > 2.2s)`,
+              isFall: false
+            };
+          }
+
+          const peakV = metrics.peakDownwardVelocity;
+          const peakW = metrics.peakAngularVelocity;
+          const peakA = metrics.peakDownwardAcceleration;
+          const isRoughDescent = metrics.trajectorySmoothness <= 0.40;
+
+          // Seated recline protection: if previously sitting and peakV < 0.38, it's safe intentional reclining!
+          const isSeatedRecline = (this.priorPosture === 'SITTING' && peakV < 0.38);
+
+          // Intentional smooth gentle recline
+          if (metrics.trajectorySmoothness >= 0.50 && peakV < 0.28) {
+            this.lastState = 'INTENTIONAL_LYING_DOWN';
+            return {
+              state: 'INTENTIONAL_LYING_DOWN',
+              confidence: 0.89,
+              reason: `Gentle controlled recline (smoothness: ${metrics.trajectorySmoothness.toFixed(2)})`,
+              isFall: false
+            };
+          }
+
+          // Exact fall dynamics criteria
+          const isFallDynamics = !isSeatedRecline && (
+            (peakV >= 0.45 && peakW >= 35.0) ||
+            (peakV >= 0.14 && peakW >= 35.0 && isRoughDescent) ||
+            (peakV >= 0.38 && isRoughDescent)
+          );
+
+          if (isFallDynamics) {
+            this.lastState = 'SUSPECTED_FALL';
+            const overallConf = Math.min(0.98, Math.max(0.75, (peakV / 0.14) * 0.5 + (peakW / 35.0) * 0.5));
+            return {
+              state: 'SUSPECTED_FALL',
+              confidence: overallConf,
+              reason: `Abrupt kinetic collapse: peak vel=${peakV.toFixed(2)} norm/s, peak ang=${peakW.toFixed(1)}°/s, accel=${peakA.toFixed(2)}`,
+              isFall: true
+            };
+          }
+
+          // Otherwise, safe intentional lying down
+          this.lastState = 'INTENTIONAL_LYING_DOWN';
+          return {
+            state: 'INTENTIONAL_LYING_DOWN',
+            confidence: 0.85,
+            reason: 'Controlled descent without gravitational collapse dynamics',
+            isFall: false
+          };
+        }
+
+        return {
+          state: 'NORMAL_MOVEMENT',
+          confidence: postureConf,
+          reason: 'Continuous active surveillance',
+          isFall: false
+        };
+      }
+    }
+
+    const kinematicBuffer = new KinematicBuffer(25);
+    const activityClassifier = new ActivityClassifier();
+
     let currentPosture = 'STANDING';
     let currentConfidence = 0.94;
     let currentTorsoAngle = 8.2;
-    let currentActivity = 'NORMAL_MOVEMENT';
-    let prevTorsoY = null;
-    let prevTorsoTime = null;
-    let smoothedVy = 0.0;
-    let consecutiveLyingFrames = 0;
     let isFallSuspected = false;
     let isVoiceWindowActive = false;
     let graceTimer = null;
@@ -243,16 +582,13 @@
     let micAnalyser = null;
     let micDataArray = null;
 
-    // Real Web Speech Recognition (Google Chrome / Edge Speech API)
+    // Real Web Speech Recognition
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let speechRecognizer = null;
     let latestTranscript = '';
 
     function initSpeechRecognizer() {
-      if (!SpeechRecognition) {
-        console.warn('Web Speech Recognition API not supported in this browser.');
-        return;
-      }
+      if (!SpeechRecognition) return;
       try {
         speechRecognizer = new SpeechRecognition();
         speechRecognizer.continuous = true;
@@ -267,18 +603,11 @@
           latestTranscript = interim.trim().toLowerCase();
           handleSpokenText(latestTranscript);
         };
-
-        speechRecognizer.onerror = (err) => {
-          console.warn('Speech recognition status:', err.error);
-        };
-      } catch(e) {
-        console.warn('SpeechRecognition init error:', e);
-      }
+      } catch(e) {}
     }
 
     initSpeechRecognizer();
 
-    // Text-to-speech speaker confirmation
     function speakAloud(text) {
       if (!window.speechSynthesis) return;
       try {
@@ -290,7 +619,6 @@
       } catch(e) {}
     }
 
-    // Web Audio Synthesizer: Exact acoustic beep-beep alarm
     function playBeepBeepAlarm() {
       try {
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -312,7 +640,6 @@
       } catch(e) {}
     }
 
-    // Setup hardware microphone monitoring (RMS Volume Meter)
     function setupMicAnalyser(stream) {
       try {
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -325,9 +652,7 @@
         micDataArray = new Uint8Array(micAnalyser.frequencyBinCount);
 
         updateMicMeterLoop();
-      } catch(e) {
-        console.warn('Mic analyser setup error:', e);
-      }
+      } catch(e) {}
     }
 
     function updateMicMeterLoop() {
@@ -350,21 +675,18 @@
       requestAnimationFrame(updateMicMeterLoop);
     }
 
-    // Start Camera & Microphone (Explicitly asks for both permissions!)
     async function startCamera() {
       const video = document.getElementById('webcamVideo');
       const canvas = document.getElementById('outputCanvas');
       const overlay = document.getElementById('startCameraOverlay');
 
       try {
-        // REQUEST BOTH CAMERA AND MICROPHONE PERMISSION!
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 640, height: 480, facingMode: 'user' },
           audio: true
         });
 
         videoStream = stream;
-        audioStream = stream;
         video.srcObject = stream;
         await video.play();
 
@@ -373,18 +695,14 @@
         overlay.classList.add('hidden');
         cameraRunning = true;
 
-        // Set Hardware Status Badges
         document.getElementById('lblStatCam').innerText = '📷 Camera: ONLINE (24 FPS)';
         document.getElementById('lblStatMic').innerText = '🎙️ Mic: ONLINE (Hardware Active)';
         document.getElementById('lblStatMic').className = 'text-[#22C55E] font-bold';
 
-        // Connect microphone to audio meter
         setupMicAnalyser(stream);
-
-        // Start Pose Detector
         initPose(video, canvas);
       } catch(err) {
-        alert('Permission Error: ' + err.message + '\nPlease grant CAMERA and MICROPHONE access in your browser so SafeFall can track falls and listen for voice verification.');
+        alert('Permission Error: ' + err.message + '\nPlease grant CAMERA and MICROPHONE access in your browser.');
       }
     }
 
@@ -413,13 +731,6 @@
           height: 480
         });
         cam.start();
-      } else {
-        function loop() {
-          if (!cameraRunning) return;
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          requestAnimationFrame(loop);
-        }
-        loop();
       }
     }
 
@@ -449,72 +760,49 @@
     }
 
     function processKinematics(lm, w, h) {
-      const ls = lm[11], rs = lm[12], lh = lm[23], rh = lm[24];
-      if (!ls || !rs || !lh || !rh) return;
+      const now = performance.now() / 1000.0;
+      const feat = extractGeometricFeatures(lm);
+      if (!feat) return;
 
-      const shoulderY = (ls.y + rs.y) / 2;
-      const shoulderX = (ls.x + rs.x) / 2;
-      const hipY = (lh.y + rh.y) / 2;
-      const hipX = (lh.x + rh.x) / 2;
-      const torsoY = (shoulderY + hipY) / 2;
+      // 1. Posture Classification
+      const postRes = classifyPosture(feat);
+      currentPosture = postRes.posture;
+      currentConfidence = postRes.confidence;
+      currentTorsoAngle = feat.torsoAngleDeg;
 
-      const now = performance.now() / 1000;
-      let vy = 0.0;
-      if (prevTorsoY !== null && prevTorsoTime !== null) {
-        const dt = now - prevTorsoTime;
-        if (dt > 0.01) {
-          vy = ((torsoY - prevTorsoY) * h) / dt;
-          smoothedVy = 0.7 * smoothedVy + 0.3 * vy;
-        }
-      }
-      prevTorsoY = torsoY;
-      prevTorsoTime = now;
+      updatePostureUI(currentPosture, currentConfidence, currentTorsoAngle);
 
-      const dx = (shoulderX - hipX) * w;
-      const dy = (shoulderY - hipY) * h;
-      const torsoAngle = Math.abs(Math.atan2(dx, -dy) * (180 / Math.PI));
+      // 2. Temporal Kinematic Metrics Buffer
+      const metrics = kinematicBuffer.add(now, feat);
 
-      let posture = 'STANDING';
-      let conf = 0.94;
-      if (torsoAngle > 55 || torsoY > 0.75) {
-        posture = 'LYING';
-        conf = 0.96;
-      } else if (torsoAngle > 25 || torsoY > 0.55) {
-        posture = 'SITTING';
-        conf = 0.88;
+      // 3. Multi-State Dynamic Activity Classification
+      const actRes = activityClassifier.evaluate(currentPosture, currentConfidence, metrics, now);
+
+      // Update right sidebar telemetry panel
+      const actLabel = document.getElementById('lblActivityState');
+      actLabel.innerText = actRes.state;
+      if (actRes.state === 'SUSPECTED_FALL') {
+        actLabel.className = 'text-sm font-bold text-[#EF4444]';
+      } else if (actRes.state === 'INTENTIONAL_LYING_DOWN' || actRes.state === 'SITTING_DOWN') {
+        actLabel.className = 'text-sm font-bold text-[#38BDF8]';
+      } else {
+        actLabel.className = 'text-sm font-bold text-[#22C55E]';
       }
 
-      currentPosture = posture;
-      currentConfidence = conf;
-      currentTorsoAngle = torsoAngle;
+      if (metrics) {
+        document.getElementById('lblKinematics').innerText = `Vy: ${(metrics.downwardHipVelocity).toFixed(2)} | w: ${metrics.angularVelocityDegS.toFixed(1)}°/s | Smooth: ${metrics.trajectorySmoothness.toFixed(2)}`;
+      }
+      document.getElementById('lblTriggerReason').innerText = `Reason: ${actRes.reason}`;
 
-      updatePostureUI(posture, conf, torsoAngle);
-
-      // If person stood back up during grace or voice window -> RECOVERED NATURALLY!
-      if ((isFallSuspected || isVoiceWindowActive) && (posture === 'STANDING' || posture === 'SITTING')) {
+      // Natural recovery check: if subject recovered upright during grace or voice window -> DISMISS!
+      if ((isFallSuspected || isVoiceWindowActive) && (currentPosture === 'STANDING' || currentPosture === 'SITTING')) {
         cancelFallAlert('RECOVERED_NATURALLY', 'Subject stood up on their own');
         return;
       }
 
-      // Fall Detection Criteria
-      if (smoothedVy > 160 && posture === 'LYING') {
-        consecutiveLyingFrames++;
-        if (consecutiveLyingFrames >= 3 && !isFallSuspected && !isVoiceWindowActive) {
-          startGraceCountdown('High velocity vertical collapse detected');
-        }
-      } else if (posture === 'LYING' && torsoY > 0.75) {
-        consecutiveLyingFrames++;
-        if (consecutiveLyingFrames > 18 && !isFallSuspected && !isVoiceWindowActive) {
-          startGraceCountdown('Prolonged floor-level lying posture');
-        }
-      } else {
-        consecutiveLyingFrames = Math.max(0, consecutiveLyingFrames - 1);
-        if (!isFallSuspected && !isVoiceWindowActive) {
-          document.getElementById('lblActivityState').innerText = 'NORMAL_MOVEMENT';
-          document.getElementById('lblActivityState').className = 'text-sm font-bold text-[#22C55E]';
-          document.getElementById('lblKinematics').innerText = `Vy: ${(smoothedVy/100).toFixed(2)} | w: ${torsoAngle.toFixed(1)}°/s | Smooth: 0.02`;
-          document.getElementById('lblTriggerReason').innerText = 'Reason: Baseline continuous monitoring';
-        }
+      // Trigger fall escalation ONLY when the activity engine flags a true accidental collapse
+      if (actRes.isFall && !isFallSuspected && !isVoiceWindowActive) {
+        startGraceCountdown(actRes.reason);
       }
     }
 
@@ -529,17 +817,12 @@
     }
 
     // -------------------------------------------------------------
-    // TWO-PHASE FALL ESCALATION PROTOCOL (Exact matching local code)
+    // TWO-PHASE FALL ESCALATION PROTOCOL
     // -------------------------------------------------------------
 
-    // Phase 1: 3.0-Second Stillness Grace Period
     function startGraceCountdown(reason) {
       isFallSuspected = true;
       document.getElementById('graceOverlay').classList.remove('hidden');
-      document.getElementById('lblActivityState').innerText = 'SUSPECTED_FALL';
-      document.getElementById('lblActivityState').className = 'text-sm font-bold text-[#EF4444]';
-      document.getElementById('lblTriggerReason').innerText = `Reason: ${reason}`;
-
       document.getElementById('lblVoiceStatus').innerText = '🎙️ Voice Engine: PENDING_GRACE';
       document.getElementById('lblVoiceStatus').className = 'text-[#F59E0B] font-bold';
 
@@ -551,7 +834,6 @@
         playBeepBeepAlarm();
         if (timeLeft <= 0) {
           clearInterval(graceTimer);
-          // Transition to Phase 2: FULL 10-SECOND VOICE WINDOW!
           transitionToVoiceWindow();
         } else {
           document.getElementById('graceCountdownLabel').innerText = `Grace Period: ${timeLeft.toFixed(1)}s (Verifying stillness...)`;
@@ -559,7 +841,6 @@
       }, 500);
     }
 
-    // Phase 2: Full 10.0-Second Voice Evaluation Window
     function transitionToVoiceWindow() {
       if (graceTimer) clearInterval(graceTimer);
       document.getElementById('graceOverlay').classList.add('hidden');
@@ -573,10 +854,8 @@
       document.getElementById('lblVoiceStatus').className = 'text-[#38BDF8] font-bold animate-pulse';
       document.getElementById('voiceLiveHeardBox').innerText = '🗣️ Heard: (listening for your voice...)';
 
-      // Speak prompt through speaker
       speakAloud("SafeFall detected a fall. Are you okay? Say 'I am fine' or 'Help me'.");
 
-      // Activate real microphone speech recognition
       if (speechRecognizer) {
         try { speechRecognizer.start(); } catch(e) {}
       }
@@ -588,7 +867,6 @@
         voiceTimeLeft -= 0.5;
         if (voiceTimeLeft <= 0) {
           clearInterval(voiceTimer);
-          // 10s expired with no response -> Trigger Emergency under unconscious elder protocol!
           publishFallAlertNow('NO_RESPONSE', '[10.0s Timeout Expired - No Verbal Response]');
         } else {
           document.getElementById('voiceCountdownLabel').innerText = `Listening Window: ${voiceTimeLeft.toFixed(1)}s remaining`;
@@ -596,20 +874,17 @@
       }, 500);
     }
 
-    // Speech Intent Classifier
     function handleSpokenText(text) {
       if (!isVoiceWindowActive) return;
       document.getElementById('voiceLiveHeardBox').innerText = `🗣️ Heard: "${text}"`;
       document.getElementById('lblVoiceHeard').innerText = `🗣️ Heard: "${text}"`;
 
-      // 1. Reassurance / Cancel intent
       const safeRegex = /(i('m| am) fine|i('m| am) okay|all good|no help|fine|okay|cancel|false alarm|stop|don't help|dont help)/i;
       if (safeRegex.test(text)) {
         cancelFallAlert('VERBAL_SAFE', text);
         return;
       }
 
-      // 2. Help / Emergency intent
       const helpRegex = /(help|help me|i fell|i fell down|cannot get up|can't get up|call 911|call ambulance|emergency|it hurts|pain)/i;
       if (helpRegex.test(text)) {
         publishFallAlertNow('REQUEST_HELP', text);
@@ -659,7 +934,6 @@
       const canvas = document.getElementById('outputCanvas');
       const b64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
 
-      // Exact desktop red banner
       const banner = document.getElementById('alertBanner');
       banner.className = 'bg-[#DC2626] rounded-t-lg px-4 py-2.5 flex items-center justify-between border border-red-700 border-b-0 alert-strobe';
       document.getElementById('bannerDot').className = 'w-3 h-3 rounded-full bg-white';
@@ -692,7 +966,6 @@
         evidenceBase64: b64
       };
 
-      // Save to localStorage so Family App receives it immediately
       let store = [];
       try {
         const existing = localStorage.getItem('safefall_incidents_store');
@@ -703,7 +976,6 @@
         localStorage.setItem('safefall_incidents_store', JSON.stringify(store));
       } catch(e) {}
 
-      // POST to backend API
       try {
         await fetch(`${API_BASE}/incidents`, {
           method: 'POST',
@@ -744,7 +1016,7 @@
       btn.innerText = `📊 Telemetry HUD: ${showHud ? 'ON' : 'OFF'}`;
     }
 
-    // Simulation & Emergency Tests (Exact 5 desktop buttons)
+    // Simulation & Emergency Tests
     function testMicVoice() {
       document.getElementById('lblVoiceStatus').innerText = '🎙️ Voice Engine: LISTENING (10s)';
       document.getElementById('lblVoiceHeard').innerText = 'Mic: [████████░░] (Say "Help" or "I am fine")';
