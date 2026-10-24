@@ -1,0 +1,45 @@
+name: safefall
+description: "SafeFall: Cross-Platform AI Fall Detection, Family Safety, and Emergency Response Platform"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management & Architecture
+  provider: ^6.1.1
+
+  # Cloud & Networking
+  http: ^1.2.0
+  shared_preferences: ^2.2.2
+  intl: ^0.19.0
+
+  # Camera & Hardware Permissions
+  camera: ^0.10.5+9
+  permission_handler: ^11.3.0
+  wakelock_plus: ^1.2.1
+
+  # Audio & Speech
+  audioplayers: ^5.2.1
+  speech_to_text: ^6.6.0
+
+  # Platform Launcher (Emergency Phone Dialer)
+  url_launcher: ^6.2.5
+
+  # Visuals & Icons
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/audio/
+    - assets/images/

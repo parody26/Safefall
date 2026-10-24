@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SafeFall — Family Safety & Emergency Response Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: #070B12;
+      color: #E2E8F0;
+    }
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.9; }
+      50% { transform: scale(1.05); opacity: 0.4; }
+      100% { transform: scale(0.95); opacity: 0.9; }
+    }
+    .emergency-pulse {
+      animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col bg-[#070B12] text-slate-100 antialiased selection:bg-sky-500 selection:text-white">
+
+  <!-- TOP HEADER / NAV -->
+  <header class="border-b border-slate-800 bg-[#0B111E]/90 backdrop-blur-md sticky top-0 z-50 px-4 lg:px-8 py-3.5 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-sky-500/20">
+        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+        </svg>
+      </div>
+      <div>
+        <div class="flex items-center space-x-2">
+          <span class="text-lg font-bold tracking-tight text-white">SafeFall</span>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 font-semibold border border-sky-500/20">CLOUD HUB</span>
+        </div>
+        <p class="text-xs text-slate-400 hidden sm:block">AI Fall Detection & Family Emergency Response System</p>
+      </div>
+    </div>
+
+    <!-- Center/Right controls -->
+    <div class="flex items-center space-x-3 sm:space-x-4">
+      <!-- Live Sync Status -->
+      <div id="cloudSyncPill" class="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+        <span id="cloudSyncText">Cloud Sync: LIVE</span>
+      </div>
+
+      <!-- Sound toggle -->
+      <button id="toggleSoundBtn" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition" title="Toggle Emergency Siren Alert Sound">
+        <span id="soundIcon">🔔</span>
+        <span id="soundText" class="hidden md:inline">Alert Audio: ON</span>
+      </button>
+
+      <!-- Active User Profile -->
+      <div class="flex items-center space-x-2 pl-2 border-l border-slate-800">
+        <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center text-xs font-bold text-white shadow-sm">
+          S
+        </div>
+        <div class="hidden lg:block text-left text-xs">
+          <div class="font-semibold text-slate-200">Sarah (Daughter)</div>
+          <div class="text-[11px] text-slate-400">Primary Caregiver</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- EMERGENCY STATUS BANNER -->
+  <div id="emergencyBanner" class="transition-all duration-300 bg-emerald-950/60 border-b border-emerald-800/40 px-4 lg:px-8 py-3">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center space-x-3">
+        <span id="bannerIcon" class="text-xl">🟢</span>
+        <div>
+          <span id="bannerTitle" class="text-sm font-bold text-emerald-400">ALL MONITORED RESIDENCES NORMAL</span>
+          <p id="bannerSubtitle" class="text-xs text-slate-400">No active fall emergencies detected. Optical neural network is monitoring in real-time.</p>
+        </div>
+      </div>
+      <div class="flex items-center space-x-2">
+        <button onclick="refreshData()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 border border-slate-700 transition flex items-center space-x-1">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          <span>Refresh</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN CONTAINER -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- LEFT / MAIN COLUMN: ACTIVE EMERGENCY INSPECTION (7 Cols) -->
+    <div class="lg:col-span-7 flex flex-col space-y-6">
+
+      <!-- INCIDENT FOCUS CARD -->
+      <div id="incidentCard" class="bg-[#0E1524] border border-slate-800 rounded-2xl p-5 shadow-xl relative overflow-hidden flex flex-col">
+        <!-- Accent line -->
+        <div id="cardAccentBar" class="absolute top-0 left-0 right-0 h-1 bg-slate-800"></div>
+
+        <!-- Top row: ID, Badge, Time -->
+        <div class="flex items-center justify-between pb-4 border-b border-slate-800/80 mb-4">
+          <div class="flex items-center space-x-2">
+            <span class="text-xs font-mono uppercase text-slate-400" id="incIdDisplay">INCIDENT #---</span>
+            <span id="incStatusBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">NO ACTIVE INCIDENT</span>
+          </div>
+          <span id="incTimeDisplay" class="text-xs text-slate-400">---</span>
+        </div>
+
+        <!-- Keyframe Video Frame Snapshot Viewer -->
+        <div class="relative w-full aspect-video bg-[#070B12] rounded-xl border border-slate-800 flex items-center justify-center overflow-hidden group shadow-inner">
+          <img id="evidenceImage" class="w-full h-full object-contain hidden" alt="Evidentiary Fall Keyframe">
+          <div id="evidencePlaceholder" class="text-center p-6 text-slate-500 flex flex-col items-center">
+            <svg class="w-12 h-12 mb-3 text-slate-600 stroke-[1.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+            </svg>
+            <p class="text-sm font-semibold text-slate-400">Optical Camera Stream Standby</p>
+            <p class="text-xs text-slate-500 mt-1 max-w-xs">When an emergency occurs, a single privacy-preserving evidentiary keyframe with pose overlay will appear here.</p>
+          </div>
+          <!-- Evidentiary overlay tag -->
+          <div id="evidenceTag" class="absolute top-3 left-3 bg-black/70 backdrop-blur-md border border-white/10 px-2.5 py-1 rounded-md text-[11px] font-mono text-sky-300 hidden">
+            📷 Single Keyframe Proof
+          </div>
+        </div>
+
+        <!-- Audio / Voice Verification Callout -->
+        <div class="mt-4 p-4 rounded-xl bg-slate-900/80 border border-slate-800 flex items-start space-x-3">
+          <div id="voiceIconBg" class="w-9 h-9 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center flex-shrink-0 text-sky-400 text-lg">
+            🎙️
+          </div>
+          <div class="flex-1">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Elder Voice Verification</span>
+              <span id="voiceStatusBadge" class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">NO RECENT SPEECH</span>
+            </div>
+            <p id="voiceTranscriptDisplay" class="text-sm font-medium text-slate-200 mt-1 italic">
+              "No voice response recorded yet."
+            </p>
+          </div>
+        </div>
+
+        <!-- Biomechanical / Kinematic Details Grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 text-xs">
+          <div class="p-3 rounded-lg bg-slate-900/50 border border-slate-800/80">
+            <span class="text-slate-400 block mb-0.5">Location</span>
+            <span id="metricLocation" class="font-bold text-slate-200">Living Room</span>
+          </div>
+          <div class="p-3 rounded-lg bg-slate-900/50 border border-slate-800/80">
+            <span class="text-slate-400 block mb-0.5">AI Confidence</span>
+            <span id="metricConfidence" class="font-bold text-sky-400 font-mono">--%</span>
+          </div>
+          <div class="p-3 rounded-lg bg-slate-900/50 border border-slate-800/80">
+            <span class="text-slate-400 block mb-0.5">Transition</span>
+            <span id="metricTransition" class="font-bold text-slate-200 font-mono">--</span>
+          </div>
+          <div class="p-3 rounded-lg bg-slate-900/50 border border-slate-800/80">
+            <span class="text-slate-400 block mb-0.5">Device</span>
+            <span id="metricDevice" class="font-bold text-slate-200 truncate block" title="Windows Monitor">Living Room Win</span>
+          </div>
+        </div>
+
+        <!-- Caregiver Response Action Bar -->
+        <div class="mt-6 pt-4 border-t border-slate-800 flex flex-wrap items-center gap-3">
+          <button id="btnAcknowledge" onclick="acknowledgeCurrentIncident()" disabled class="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:hover:bg-amber-500 text-slate-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition flex items-center justify-center space-x-2">
+            <span>⚡</span>
+            <span>Acknowledge Emergency</span>
+          </button>
+          <button id="btnResolve" onclick="openResolveModal()" disabled class="flex-1 py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:hover:bg-emerald-600 text-white font-bold text-sm shadow-lg shadow-emerald-600/20 transition flex items-center justify-center space-x-2">
+            <span>✅</span>
+            <span>Resolve & Close</span>
+          </button>
+          <a href="tel:911" class="py-3 px-4 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 font-bold text-sm border border-rose-500/30 transition flex items-center justify-center space-x-1.5" title="Direct Dial Emergency Services">
+            <span>🚨</span>
+            <span class="hidden sm:inline">Call EMS / 911</span>
+          </a>
+        </div>
+
+      </div>
+
+      <!-- SIMULATOR CARD (Allows immediate demo & testing) -->
+      <div class="bg-[#0E1524] border border-slate-800/80 rounded-2xl p-5 shadow-lg">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center space-x-2">
+            <span class="text-base">🧪</span>
+            <h3 class="text-sm font-bold text-slate-200">Cloud Fall Alert Simulator</h3>
+          </div>
+          <span class="text-[11px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded">DEMO & QA</span>
+        </div>
+        <p class="text-xs text-slate-400 mb-4">
+          Simulate a real-time fall event to verify emergency siren audio, evidentiary keyframe transfer, and caregiver acknowledgement without needing a physical fall.
+        </p>
+        <div class="flex flex-wrap gap-2.5">
+          <button onclick="triggerSimulatedIncident('HELP')" class="flex-1 py-2 px-3 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md shadow-rose-600/20 transition">
+            🚨 Trigger Fall ("Help me!")
+          </button>
+          <button onclick="triggerSimulatedIncident('NO_RESPONSE')" class="flex-1 py-2 px-3 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold shadow-md shadow-orange-600/20 transition">
+            ⚠️ Trigger Silent Fall (Unconscious)
+          </button>
+          <button onclick="purgeResolvedIncidents()" class="py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition">
+            🧹 Clear Resolved
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT COLUMN: INCIDENT HISTORY, DEVICES, CONTACTS (5 Cols) -->
+    <div class="lg:col-span-5 flex flex-col space-y-6">
+
+      <!-- MONITORED DEVICES CARD -->
+      <div class="bg-[#0E1524] border border-slate-800 rounded-2xl p-5 shadow-xl">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center space-x-2">
+            <span class="text-base">📹</span>
+            <h3 class="text-sm font-bold text-slate-200">Monitored Edge Stations</h3>
+          </div>
+          <span id="deviceCountBadge" class="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">1 ONLINE</span>
+        </div>
+        <div id="devicesContainer" class="space-y-2.5">
+          <!-- Populated dynamically -->
+          <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <div class="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400 text-sm">
+                💻
+              </div>
+              <div>
+                <div class="text-xs font-bold text-slate-200">Windows Living Room Monitor</div>
+                <div class="text-[11px] text-slate-400">Location: Living Room • 24.0 FPS</div>
+              </div>
+            </div>
+            <span class="text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">ONLINE</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- INCIDENT HISTORY TIMELINE CARD -->
+      <div class="bg-[#0E1524] border border-slate-800 rounded-2xl p-5 shadow-xl flex-1 flex flex-col">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center space-x-2">
+            <span class="text-base">📋</span>
+            <h3 class="text-sm font-bold text-slate-200">Incident Feed</h3>
+          </div>
+          <div class="flex space-x-1">
+            <button onclick="setHistoryFilter('ALL')" id="filterAll" class="text-[11px] px-2 py-0.5 rounded bg-sky-600 text-white font-bold transition">All</button>
+            <button onclick="setHistoryFilter('ACTIVE')" id="filterActive" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-bold hover:text-white transition">Active</button>
+            <button onclick="setHistoryFilter('RESOLVED')" id="filterResolved" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-bold hover:text-white transition">Resolved</button>
+          </div>
+        </div>
+
+        <div id="incidentsList" class="space-y-2.5 overflow-y-auto max-h-[380px] custom-scrollbar flex-1 pr-1">
+          <!-- Populated dynamically -->
+          <div class="text-center py-10 text-slate-500 text-xs">
+            Loading cloud incident history...
+          </div>
+        </div>
+      </div>
+
+      <!-- EMERGENCY CONTACTS CARD -->
+      <div class="bg-[#0E1524] border border-slate-800 rounded-2xl p-5 shadow-xl">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center space-x-2">
+            <span class="text-base">👨‍👩‍👧</span>
+            <h3 class="text-sm font-bold text-slate-200">Caregiver Escalation Circle</h3>
+          </div>
+          <span class="text-[11px] text-slate-400">Auto-Alert</span>
+        </div>
+        <div class="space-y-2 text-xs">
+          <div class="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 flex items-center justify-between">
+            <div>
+              <span class="font-bold text-slate-200">Sarah (Daughter)</span>
+              <span class="text-[10px] text-sky-400 ml-1.5 font-semibold bg-sky-500/10 px-1.5 py-0.5 rounded">PRIMARY</span>
+              <div class="text-[11px] text-slate-400 mt-0.5 font-mono">+1-555-0192</div>
+            </div>
+            <a href="tel:+15550192" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">📞</a>
+          </div>
+          <div class="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 flex items-center justify-between">
+            <div>
+              <span class="font-bold text-slate-200">David (Son)</span>
+              <div class="text-[11px] text-slate-400 mt-0.5 font-mono">+1-555-0193</div>
+            </div>
+            <a href="tel:+15550193" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">📞</a>
+          </div>
+          <div class="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 flex items-center justify-between">
+            <div>
+              <span class="font-bold text-slate-200">Nurse Evelyn</span>
+              <span class="text-[10px] text-emerald-400 ml-1.5 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded">MEDICAL ADMIN</span>
+              <div class="text-[11px] text-slate-400 mt-0.5 font-mono">+1-555-0199</div>
+            </div>
+            <a href="tel:+15550199" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">📞</a>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- RESOLVE MODAL DIALOG -->
+  <div id="resolveModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-[#0E1524] border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
+      <h3 class="text-lg font-bold text-white mb-2">Resolve Fall Emergency</h3>
+      <p class="text-xs text-slate-400 mb-4">Please record caregiver action taken and condition of the individual.</p>
+      
+      <label class="block text-xs font-semibold text-slate-300 mb-1">Caregiver Full Name</label>
+      <input type="text" id="resolveActorInput" value="Sarah (Daughter)" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 text-sm mb-4 focus:outline-none focus:border-sky-500">
+
+      <label class="block text-xs font-semibold text-slate-300 mb-1">Resolution & Safety Notes</label>
+      <textarea id="resolveNoteInput" rows="3" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 text-sm mb-4 focus:outline-none focus:border-sky-500 placeholder-slate-500" placeholder="e.g. Checked in person, assisted elder to chair, vitals stable, no injuries."></textarea>
+
+      <div class="flex items-center justify-end space-x-3">
+        <button onclick="closeResolveModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold transition">Cancel</button>
+        <button onclick="submitResolveIncident()" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold shadow-lg shadow-emerald-600/20 transition">Confirm Resolution</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CLIENT-SIDE LOGIC -->
+  <script>
+    // State
+    const API_BASE = window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1')
+      ? '/api/v1'
+      : '/api/v1';
+
+    let incidents = [];
+    let currentIncidentId = null;
+    let historyFilter = 'ALL';
+    let soundEnabled = true;
+    let audioCtx = null;
+    let lastAlertedId = null;
+
+    // Web Audio Synthesizer (Zero asset dependency siren tone)
+    function playAlertChime() {
+      if (!soundEnabled) return;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+        osc.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.35); // A4
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.45);
+      } catch (e) {
+        console.warn('Audio play error:', e);
+      }
+    }
+
+    // Sound toggle
+    document.getElementById('toggleSoundBtn').addEventListener('click', () => {
+      soundEnabled = !soundEnabled;
+      document.getElementById('soundIcon').innerText = soundEnabled ? '🔔' : '🔕';
+      document.getElementById('soundText').innerText = soundEnabled ? 'Alert Audio: ON' : 'Alert Audio: OFF';
+      if (soundEnabled) playAlertChime();
+    });
+
+    // Fetch Incidents & Devices
+    async function refreshData() {
+      try {
+        const [incRes, devRes] = await Promise.all([
+          fetch(`${API_BASE}/incidents`),
+          fetch(`${API_BASE}/devices`)
+        ]);
+
+        if (incRes.ok) {
+          const incData = await incRes.json();
+          incidents = incData.incidents || [];
+          updateSyncStatus(true);
+          renderIncidents();
+        } else {
+          updateSyncStatus(false);
+        }
+
+        if (devRes.ok) {
+          const devData = await devRes.json();
+          renderDevices(devData.devices || []);
+        }
+      } catch (err) {
+        console.warn('Fetch error:', err);
+        updateSyncStatus(false);
+      }
+    }
+
+    function updateSyncStatus(isLive) {
+      const pill = document.getElementById('cloudSyncPill');
+      const text = document.getElementById('cloudSyncText');
+      if (isLive) {
+        pill.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold';
+        text.innerText = 'Cloud Sync: LIVE';
+      } else {
+        pill.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-semibold';
+        text.innerText = 'Cloud Sync: RECONNECTING';
+      }
+    }
+
+    function renderDevices(devices) {
+      const container = document.getElementById('devicesContainer');
+      const badge = document.getElementById('deviceCountBadge');
+      if (!devices || devices.length === 0) {
+        container.innerHTML = '<div class="text-xs text-slate-500 text-center py-2">No active devices registered</div>';
+        badge.innerText = '0 ONLINE';
+        badge.className = 'text-xs font-mono font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded';
+        return;
+      }
+      badge.innerText = `${devices.length} ONLINE`;
+      container.innerHTML = devices.map(d => `
+        <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400 text-sm">
+              💻
+            </div>
+            <div>
+              <div class="text-xs font-bold text-slate-200">${escapeHtml(d.deviceName || d.deviceId)}</div>
+              <div class="text-[11px] text-slate-400">Location: ${escapeHtml(d.locationLabel || 'Home')} • ${d.fps ? d.fps.toFixed(1) + ' FPS' : 'Active'}</div>
+            </div>
+          </div>
+          <span class="text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">${(d.status || 'online').toUpperCase()}</span>
+        </div>
+      `).join('');
+    }
+
+    function renderIncidents() {
+      // 1. Check for active emergency
+      const activeEmergency = incidents.find(i => i.incidentStatus === 'EMERGENCY_PUBLISHED' || i.incidentStatus === 'SUSPECTED_FALL');
+      const acknowledgedEmergency = incidents.find(i => i.incidentStatus === 'ACKNOWLEDGED');
+
+      updateBanner(activeEmergency, acknowledgedEmergency);
+
+      // Play alert chime if a new emergency appeared
+      if (activeEmergency && activeEmergency.incidentId !== lastAlertedId) {
+        lastAlertedId = activeEmergency.incidentId;
+        playAlertChime();
+      }
+
+      // If no incident selected or selected was resolved, focus on active
+      if (!currentIncidentId || !incidents.find(i => i.incidentId === currentIncidentId)) {
+        if (activeEmergency) currentIncidentId = activeEmergency.incidentId;
+        else if (acknowledgedEmergency) currentIncidentId = acknowledgedEmergency.incidentId;
+        else if (incidents.length > 0) currentIncidentId = incidents[0].incidentId;
+      }
+
+      const current = incidents.find(i => i.incidentId === currentIncidentId);
+      renderFocusCard(current);
+      renderTimeline();
+    }
+
+    function updateBanner(active, ack) {
+      const banner = document.getElementById('emergencyBanner');
+      const icon = document.getElementById('bannerIcon');
+      const title = document.getElementById('bannerTitle');
+      const sub = document.getElementById('bannerSubtitle');
+
+      if (active) {
+        banner.className = 'transition-all duration-300 bg-rose-950/80 border-b border-rose-600 px-4 lg:px-8 py-3.5 emergency-pulse shadow-lg shadow-rose-900/30';
+        icon.innerText = '🚨';
+        title.className = 'text-sm font-extrabold text-rose-300 tracking-wide uppercase';
+        title.innerText = `CRITICAL FALL EMERGENCY — ${active.locationLabel || 'Living Room'}`;
+        sub.innerText = `Elder fell at ${formatTime(active.detectedAt)}. Voice: "${active.voiceTranscript || 'No response'}". Caregiver assistance requested immediately!`;
+      } else if (ack) {
+        banner.className = 'transition-all duration-300 bg-amber-950/70 border-b border-amber-600/40 px-4 lg:px-8 py-3';
+        icon.innerText = '⚡';
+        title.className = 'text-sm font-bold text-amber-300';
+        title.innerText = `EMERGENCY ACKNOWLEDGED — Responding: ${ack.acknowledgedBy || 'Caregiver'}`;
+        sub.innerText = `Incident in ${ack.locationLabel} is being handled. Awaiting final resolution confirmation.`;
+      } else {
+        banner.className = 'transition-all duration-300 bg-emerald-950/60 border-b border-emerald-800/40 px-4 lg:px-8 py-3';
+        icon.innerText = '🟢';
+        title.className = 'text-sm font-bold text-emerald-400';
+        title.innerText = 'ALL MONITORED RESIDENCES NORMAL';
+        sub.innerText = 'No active fall emergencies detected. Optical neural network is monitoring in real-time.';
+      }
+    }
+
+    function renderFocusCard(inc) {
+      const idDisp = document.getElementById('incIdDisplay');
+      const badge = document.getElementById('incStatusBadge');
+      const timeDisp = document.getElementById('incTimeDisplay');
+      const accent = document.getElementById('cardAccentBar');
+      const img = document.getElementById('evidenceImage');
+      const placeholder = document.getElementById('evidencePlaceholder');
+      const tag = document.getElementById('evidenceTag');
+      const voiceBadge = document.getElementById('voiceStatusBadge');
+      const voiceText = document.getElementById('voiceTranscriptDisplay');
+      const voiceIconBg = document.getElementById('voiceIconBg');
+      const loc = document.getElementById('metricLocation');
+      const conf = document.getElementById('metricConfidence');
+      const trans = document.getElementById('metricTransition');
+      const dev = document.getElementById('metricDevice');
+      const btnAck = document.getElementById('btnAcknowledge');
+      const btnRes = document.getElementById('btnResolve');
+
+      if (!inc) {
+        idDisp.innerText = 'INCIDENT #---';
+        badge.innerText = 'STANDBY';
+        badge.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700';
+        timeDisp.innerText = '---';
+        accent.className = 'absolute top-0 left-0 right-0 h-1 bg-slate-800';
+        img.classList.add('hidden');
+        placeholder.classList.remove('hidden');
+        tag.classList.add('hidden');
+        voiceBadge.innerText = 'IDLE';
+        voiceText.innerText = '"No fall events active."';
+        loc.innerText = 'Living Room';
+        conf.innerText = '--%';
+        trans.innerText = '--';
+        dev.innerText = 'Windows Living Room';
+        btnAck.disabled = true;
+        btnRes.disabled = true;
+        return;
+      }
+
+      idDisp.innerText = `INCIDENT #${inc.incidentId}`;
+      timeDisp.innerText = formatTime(inc.detectedAt || inc.detectedAtTs);
+      loc.innerText = inc.locationLabel || 'Living Room';
+      conf.innerText = inc.confidence ? `${(inc.confidence * 100).toFixed(1)}%` : '95.0%';
+      trans.innerText = (inc.transitionType || 'FALL').replace('_', ' ');
+      dev.innerText = inc.deviceName || inc.deviceId || 'Living Room Station';
+
+      // Status Styling
+      if (inc.incidentStatus === 'EMERGENCY_PUBLISHED' || inc.incidentStatus === 'SUSPECTED_FALL') {
+        badge.innerText = '🚨 EMERGENCY ACTIVE';
+        badge.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse';
+        accent.className = 'absolute top-0 left-0 right-0 h-1 bg-rose-500';
+        btnAck.disabled = false;
+        btnRes.disabled = false;
+      } else if (inc.incidentStatus === 'ACKNOWLEDGED') {
+        badge.innerText = `⚡ ACKNOWLEDGED (${inc.acknowledgedBy || 'Caregiver'})`;
+        badge.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30';
+        accent.className = 'absolute top-0 left-0 right-0 h-1 bg-amber-500';
+        btnAck.disabled = true;
+        btnRes.disabled = false;
+      } else {
+        badge.innerText = `✅ RESOLVED (${inc.resolvedBy || 'Family'})`;
+        badge.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+        accent.className = 'absolute top-0 left-0 right-0 h-1 bg-emerald-500';
+        btnAck.disabled = true;
+        btnRes.disabled = true;
+      }
+
+      // Evidentiary Image
+      if (inc.evidenceBase64 && inc.evidenceBase64.length > 50) {
+        img.src = `data:image/jpeg;base64,${inc.evidenceBase64}`;
+        img.classList.remove('hidden');
+        placeholder.classList.add('hidden');
+        tag.classList.remove('hidden');
+      } else {
+        img.classList.add('hidden');
+        placeholder.classList.remove('hidden');
+        tag.classList.add('hidden');
+      }
+
+      // Voice Transcript
+      const vStatus = inc.voiceResponseStatus || 'NO_RESPONSE';
+      voiceBadge.innerText = vStatus.replace('_', ' ');
+      if (vStatus === 'HELP_CONFIRMED') {
+        voiceBadge.className = 'text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30';
+        voiceIconBg.className = 'w-9 h-9 rounded-lg bg-rose-500/20 border border-rose-500/30 flex items-center justify-center flex-shrink-0 text-rose-300 text-lg';
+      } else if (vStatus === 'CALL_CONFIRMED') {
+        voiceBadge.className = 'text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30';
+        voiceIconBg.className = 'w-9 h-9 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center flex-shrink-0 text-amber-300 text-lg';
+      } else {
+        voiceBadge.className = 'text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400';
+        voiceIconBg.className = 'w-9 h-9 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center flex-shrink-0 text-sky-400 text-lg';
+      }
+
+      voiceText.innerText = inc.voiceTranscript ? `"${inc.voiceTranscript}"` : '"No audible response recorded during 10s evaluation window."';
+    }
+
+    function renderTimeline() {
+      const container = document.getElementById('incidentsList');
+      let filtered = incidents;
+      if (historyFilter === 'ACTIVE') {
+        filtered = incidents.filter(i => i.incidentStatus === 'EMERGENCY_PUBLISHED' || i.incidentStatus === 'ACKNOWLEDGED');
+      } else if (historyFilter === 'RESOLVED') {
+        filtered = incidents.filter(i => i.incidentStatus === 'RESOLVED');
+      }
+
+      if (filtered.length === 0) {
+        container.innerHTML = '<div class="text-center py-10 text-slate-500 text-xs">No incidents match this filter.</div>';
+        return;
+      }
+
+      container.innerHTML = filtered.map(inc => {
+        const isSelected = inc.incidentId === currentIncidentId;
+        const isEmg = inc.incidentStatus === 'EMERGENCY_PUBLISHED';
+        const isAck = inc.incidentStatus === 'ACKNOWLEDGED';
+        
+        let borderClass = isSelected ? 'border-sky-500/80 bg-sky-950/20' : 'border-slate-800 hover:border-slate-700 bg-slate-900/50';
+        let statusBadge = '';
+        if (isEmg) statusBadge = '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse">EMERGENCY</span>';
+        else if (isAck) statusBadge = '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">ACK</span>';
+        else statusBadge = '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">RESOLVED</span>';
+
+        return `
+          <div onclick="selectIncident('${inc.incidentId}')" class="p-3 rounded-xl border ${borderClass} cursor-pointer transition flex items-center justify-between">
+            <div class="flex items-center space-x-3 overflow-hidden">
+              <span class="text-lg">${isEmg ? '🚨' : (isAck ? '⚡' : '✅')}</span>
+              <div class="truncate">
+                <div class="text-xs font-bold text-slate-200 truncate">${escapeHtml(inc.locationLabel || 'Living Room')}</div>
+                <div class="text-[11px] text-slate-400 mt-0.5 truncate">${formatTime(inc.detectedAt || inc.detectedAtTs)} • ${inc.voiceTranscript ? '"' + escapeHtml(inc.voiceTranscript) + '"' : 'Silent'}</div>
+              </div>
+            </div>
+            <div class="flex-shrink-0 ml-2">
+              ${statusBadge}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function selectIncident(id) {
+      currentIncidentId = id;
+      const current = incidents.find(i => i.incidentId === currentIncidentId);
+      renderFocusCard(current);
+      renderTimeline();
+    }
+
+    function setHistoryFilter(f) {
+      historyFilter = f;
+      ['All', 'Active', 'Resolved'].forEach(name => {
+        const btn = document.getElementById(`filter${name}`);
+        if (name.toUpperCase() === f) {
+          btn.className = 'text-[11px] px-2 py-0.5 rounded bg-sky-600 text-white font-bold transition';
+        } else {
+          btn.className = 'text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-bold hover:text-white transition';
+        }
+      });
+      renderTimeline();
+    }
+
+    // Actions
+    async function acknowledgeCurrentIncident() {
+      if (!currentIncidentId) return;
+      try {
+        const res = await fetch(`${API_BASE}/incidents/${currentIncidentId}/acknowledge`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ actorName: 'Sarah (Daughter)' })
+        });
+        if (res.ok) {
+          await refreshData();
+        }
+      } catch (e) {
+        alert('Could not acknowledge: ' + e);
+      }
+    }
+
+    function openResolveModal() {
+      document.getElementById('resolveModal').classList.remove('hidden');
+    }
+
+    function closeResolveModal() {
+      document.getElementById('resolveModal').classList.add('hidden');
+    }
+
+    async function submitResolveIncident() {
+      if (!currentIncidentId) return;
+      const actor = document.getElementById('resolveActorInput').value.trim() || 'Sarah (Daughter)';
+      const note = document.getElementById('resolveNoteInput').value.trim() || 'Checked in person, confirmed safe.';
+
+      try {
+        const res = await fetch(`${API_BASE}/incidents/${currentIncidentId}/resolve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ actorName: actor, resolutionNote: note })
+        });
+        if (res.ok) {
+          closeResolveModal();
+          await refreshData();
+        }
+      } catch (e) {
+        alert('Could not resolve: ' + e);
+      }
+    }
+
+    // Trigger simulation
+    async function triggerSimulatedIncident(voiceType) {
+      const incId = 'sim_' + Date.now().toString(36);
+      
+      // Generate synthetic dark canvas snapshot with skeleton overlay
+      const canvas = document.createElement('canvas');
+      canvas.width = 320;
+      canvas.height = 240;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(0, 0, 320, 240);
+      
+      // Draw grid
+      ctx.strokeStyle = '#1F2937';
+      ctx.lineWidth = 1;
+      for (let x = 0; x < 320; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 240); ctx.stroke(); }
+      for (let y = 0; y < 240; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(320, y); ctx.stroke(); }
+
+      // Draw fallen pose stick figure (lying on floor)
+      ctx.strokeStyle = '#EF4444';
+      ctx.lineWidth = 3;
+      // Head
+      ctx.beginPath(); ctx.arc(80, 180, 12, 0, Math.PI * 2); ctx.stroke();
+      // Torso
+      ctx.beginPath(); ctx.moveTo(92, 180); ctx.lineTo(170, 185); ctx.stroke();
+      // Legs
+      ctx.beginPath(); ctx.moveTo(170, 185); ctx.lineTo(240, 190); ctx.stroke();
+      // Arms
+      ctx.beginPath(); ctx.moveTo(120, 182); ctx.lineTo(135, 160); ctx.stroke();
+
+      // Text watermark
+      ctx.fillStyle = '#F87171';
+      ctx.font = '10px monospace';
+      ctx.fillText('[SafeFall Simulation] Fall Confirmed', 10, 20);
+
+      const b64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+
+      const payload = {
+        incidentId: incId,
+        familyId: 'fam_demo_101',
+        deviceId: 'dev_win_01',
+        deviceName: 'Windows Living Room Monitor',
+        locationLabel: 'Living Room (Floor)',
+        detectedAt: new Date().toISOString(),
+        lastKnownPosture: 'LYING',
+        transitionType: 'STANDING_TO_LYING',
+        confidence: 0.965,
+        voiceResponseStatus: voiceType === 'HELP' ? 'HELP_CONFIRMED' : 'NO_RESPONSE',
+        voiceTranscript: voiceType === 'HELP' ? 'Help me! I fell down and cannot get up!' : '',
+        incidentStatus: 'EMERGENCY_PUBLISHED',
+        evidenceBase64: b64
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/incidents`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          currentIncidentId = incId;
+          await refreshData();
+        }
+      } catch (e) {
+        alert('Simulation failed: ' + e);
+      }
+    }
+
+    async function purgeResolvedIncidents() {
+      try {
+        await fetch(`${API_BASE}/incidents/resolved`, { method: 'DELETE' });
+        await refreshData();
+      } catch (e) {
+        alert('Purge error: ' + e);
+      }
+    }
+
+    // Helpers
+    function formatTime(isoOrTs) {
+      if (!isoOrTs) return 'Just now';
+      try {
+        const d = typeof isoOrTs === 'number' ? new Date(isoOrTs * 1000) : new Date(isoOrTs);
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      } catch (e) {
+        return String(isoOrTs);
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // Polling Loop (every 2.5 seconds)
+    refreshData();
+    setInterval(refreshData, 2500);
+  </script>
+</body>
+</html>

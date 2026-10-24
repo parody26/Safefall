@@ -1,0 +1,37 @@
+{
+  "scenarios": [
+    {
+      "id": "scenario_01_standing",
+      "description": "Subject standing upright continuously",
+      "expected_classification": "STANDING",
+      "expected_fall": false,
+      "frames": [
+        { "t": 0.0, "torso_angle": 5.2, "ar": 0.52, "hip_y": 0.51, "knee_angle": 172.0 },
+        { "t": 0.5, "torso_angle": 6.1, "ar": 0.53, "hip_y": 0.51, "knee_angle": 170.5 },
+        { "t": 1.0, "torso_angle": 4.8, "ar": 0.51, "hip_y": 0.50, "knee_angle": 171.0 }
+      ]
+    },
+    {
+      "id": "scenario_02_sitting",
+      "description": "Subject sitting on a chair",
+      "expected_classification": "SITTING",
+      "expected_fall": false,
+      "frames": [
+        { "t": 0.0, "torso_angle": 25.0, "ar": 0.95, "hip_y": 0.65, "knee_angle": 95.0 },
+        { "t": 0.5, "torso_angle": 26.5, "ar": 0.96, "hip_y": 0.65, "knee_angle": 92.0 }
+      ]
+    },
+    {
+      "id": "scenario_06_rapid_fall",
+      "description": "Subject experiences sudden trip and falls to floor in 0.5s",
+      "expected_classification": "LYING",
+      "expected_fall": true,
+      "frames": [
+        { "t": 0.0, "torso_angle": 8.0, "ar": 0.54, "hip_y": 0.50, "knee_angle": 170.0 },
+        { "t": 0.2, "torso_angle": 35.0, "ar": 0.75, "hip_y": 0.65, "knee_angle": 140.0 },
+        { "t": 0.5, "torso_angle": 75.0, "ar": 1.45, "hip_y": 0.86, "knee_angle": 160.0 },
+        { "t": 0.9, "torso_angle": 78.0, "ar": 1.48, "hip_y": 0.86, "knee_angle": 162.0 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: safefall-cloud
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python safefall/backend/server.py 10000"
+    envVars:
+      - key: PORT
+        value: 10000

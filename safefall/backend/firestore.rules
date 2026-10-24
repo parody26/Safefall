@@ -1,0 +1,110 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isUser(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+    
+    function getMembership(familyId) {
+      return get(/databases/$(database)/documents/memberships/$(familyId + '_' + request.auth.uid)).data;
+    }
+    
+    function isMember(familyId) {
+      return isAuthenticated() && exists(/databases/$(database)/documents/memberships/$(familyId + '_' + request.auth.uid))
+        && getMembership(familyId).membershipStatus == 'active';
+    }
+    
+    function getRole(familyId) {
+      return getMembership(familyId).role;
+    }
+    
+    function isAdmin(familyId) {
+      return isMember(familyId) && getRole(familyId) == 'admin';
+    }
+    
+    function isCaregiver(familyId) {
+      return isMember(familyId) && (getRole(familyId) == 'admin' || getRole(familyId) == 'caregiver');
+    }
+
+    // 1. User Profiles
+    match /users/{uid} {
+      allow read: if isAuthenticated();
+      allow create: if isUser(uid);
+      allow update: if isUser(uid) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['accountStatus']);
+      allow delete: if false; // Soft deletes handled by trusted backend
+    }
+
+    // 2. Families
+    match /families/{familyId} {
+      allow read: if isMember(familyId);
+      allow create: if isAuthenticated() && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isAdmin(familyId);
+      allow delete: if isAdmin(familyId);
+    }
+
+    // 3. Family Memberships
+    match /memberships/{membershipId} {
+      allow read: if isMember(resource.data.familyId);
+      // Only an admin can directly create/update memberships, or through trusted Cloud Functions
+      allow create: if isAuthenticated() && (
+        isAdmin(request.resource.data.familyId) || 
+        // Initial admin creating family
+        (request.resource.data.uid == request.auth.uid && request.resource.data.role == 'admin')
+      );
+      allow update: if isAdmin(resource.data.familyId) && 
+        // Prevent revoking or self-demoting the last admin without successor
+        !(request.auth.uid == resource.data.uid && request.resource.data.role != 'admin');
+      allow delete: if isAdmin(resource.data.familyId);
+    }
+
+    // 4. Invitations
+    match /invitations/{invitationId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin(request.resource.data.familyId);
+      allow update: if isAdmin(resource.data.familyId);
+      allow delete: if isAdmin(resource.data.familyId);
+    }
+
+    // 5. Registered Devices
+    match /devices/{deviceId} {
+      allow read: if isMember(resource.data.familyId);
+      allow create: if isAdmin(request.resource.data.familyId);
+      allow update: if isMember(resource.data.familyId);
+      allow delete: if isAdmin(resource.data.familyId);
+    }
+
+    // 6. Incidents
+    match /incidents/{incidentId} {
+      allow read: if isMember(resource.data.familyId);
+      // Device or member can publish incident
+      allow create: if isAuthenticated() && (
+        isMember(request.resource.data.familyId) ||
+        exists(/databases/$(database)/documents/devices/$(request.resource.data.deviceId))
+      );
+      // Acknowledging or resolving requires caregiver/admin role
+      allow update: if isCaregiver(resource.data.familyId);
+      allow delete: if isAdmin(resource.data.familyId);
+    }
+
+    // 7. Incident Audit Events
+    match /incidentEvents/{eventId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if false; // Append-only audit trail
+    }
+
+    // 8. Notifications
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && resource.data.recipientUid == request.auth.uid;
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && resource.data.recipientUid == request.auth.uid;
+      allow delete: if false;
+    }
+  }
+}

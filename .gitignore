@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+
+# Large Training Datasets & Video Dumps (Extracted model features & weights are preserved)
+training/
+*.avi
+*.mp4
+*.mkv
+*.mov
+
+# Logs & Temporary files
+*.log
+safefall/windows_monitor/logs/*.jsonl
+!safefall/windows_monitor/logs/detection_decisions.jsonl
+queued_incidents.json
+
+# Environment Secrets
+.env
+.env.local
+*.p8
+*.key
+*.pem
+serviceAccountKey.json
+
+# Vercel & IDE
+.vercel
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
