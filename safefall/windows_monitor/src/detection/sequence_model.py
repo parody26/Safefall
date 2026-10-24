@@ -182,28 +182,24 @@ class TemporalSequenceEvaluator:
         normal_prob = probs_dict.get("NORMAL_MOVEMENT", 0.0)
         sitting_prob = probs_dict.get("SITTING_DOWN", 0.0)
 
-        # Distinguish between dynamic transition (FALL vs INTENTIONAL_LYING)
+        total_lying_prob = intentional_lying_prob + resting_lying_prob
+
+        # Distinguish between dynamic transition (FALL vs INTENTIONAL_LYING / RESTING)
         # 1. Accidental Fall:
-        # Fall probability is significant (>= 0.35) and exceeds or matches intentional transition probability
-        if fall_prob >= 0.35 and fall_prob >= intentional_lying_prob:
+        # Fall probability is high (>= 0.50) and dominates total lying probability
+        if fall_prob >= 0.50 and fall_prob > total_lying_prob:
             decision = "FALL"
             is_fall = True
             is_lying = False
             conf = fall_prob
-        # 2. Intentional Lying Down:
-        # Intentional transition probability is significant (>= 0.30) and exceeds fall probability
-        elif intentional_lying_prob >= 0.30 and intentional_lying_prob > fall_prob:
+        # 2. Intentional Lying Down or Resting / Sleeping:
+        # Intentional transition or resting probability is significant (>= 0.35) and exceeds or matches fall probability
+        elif total_lying_prob >= 0.35 and total_lying_prob >= fall_prob:
             decision = "LYING"
             is_fall = False
             is_lying = True
-            conf = intentional_lying_prob
-        # 3. Resting / Sleeping Lying Down (static horizontal posture without fall kinematics)
-        elif resting_lying_prob >= 0.40 and fall_prob < 0.25:
-            decision = "LYING"
-            is_fall = False
-            is_lying = True
-            conf = resting_lying_prob
-        # 4. Sitting Down
+            conf = total_lying_prob
+        # 3. Sitting Down
         elif sitting_prob > normal_prob and sitting_prob > fall_prob:
             decision = "SITTING"
             is_fall = False

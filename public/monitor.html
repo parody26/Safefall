@@ -219,6 +219,190 @@
       return Math.acos(cosVal) * (180.0 / Math.PI);
     }
 
+    // -------------------------------------------------------------
+    // TRAINED TEMPORAL GRU NEURAL SEQUENCE EVALUATOR (LE2I DATASET)
+    // -------------------------------------------------------------
+    let gruModelWeights = null;
+    fetch('/fall_vs_lying_weights.json')
+      .then(res => res.json())
+      .then(w => {
+        gruModelWeights = w;
+        console.log('[SafeFall GRU] Trained GRU neural weights loaded successfully');
+        const st = document.getElementById('lblStatDet');
+        if (st) st.innerText = '⚡ Detection Engine: ACTIVE (Trained GRU)';
+      })
+      .catch(err => {
+        console.warn('[SafeFall GRU] Fallback to biomechanical engine:', err);
+      });
+
+    function sigmoid(x) {
+      return 1.0 / (1.0 + Math.exp(-Math.max(-30, Math.min(30, x))));
+    }
+
+    function gruCell(x_t, h_prev, w_ih, w_hh, b_ih, b_hh) {
+      const hiddenDim = 32;
+      const h_next = new Float32Array(hiddenDim);
+      const gi = new Float32Array(96);
+      const gh = new Float32Array(96);
+
+      for (let i = 0; i < 96; i++) {
+        let sumI = b_ih[i];
+        for (let j = 0; j < x_t.length; j++) sumI += w_ih[i][j] * x_t[j];
+        gi[i] = sumI;
+
+        let sumH = b_hh[i];
+        for (let j = 0; j < hiddenDim; j++) sumH += w_hh[i][j] * h_prev[j];
+        gh[i] = sumH;
+      }
+
+      for (let i = 0; i < hiddenDim; i++) {
+        const r = sigmoid(gi[i] + gh[i]);
+        const z = sigmoid(gi[i + 32] + gh[i + 32]);
+        const n = Math.tanh(gi[i + 64] + r * gh[i + 64]);
+        h_next[i] = (1.0 - z) * n + z * h_prev[i];
+      }
+      return h_next;
+    }
+
+    function runBiGruLayer(x_seq, w_ih, w_hh, b_ih, b_hh, w_ih_rev, w_hh_rev, b_ih_rev, b_hh_rev) {
+      const seqLen = x_seq.length;
+      let h_fwd = new Float32Array(32);
+      let h_bwd = new Float32Array(32);
+
+      const fwdOutputs = [];
+      for (let t = 0; t < seqLen; t++) {
+        h_fwd = gruCell(x_seq[t], h_fwd, w_ih, w_hh, b_ih, b_hh);
+        fwdOutputs.push(h_fwd);
+      }
+
+      const bwdOutputs = new Array(seqLen);
+      for (let t = seqLen - 1; t >= 0; t--) {
+        h_bwd = gruCell(x_seq[t], h_bwd, w_ih_rev, w_hh_rev, b_ih_rev, b_hh_rev);
+        bwdOutputs[t] = h_bwd;
+      }
+
+      const out = [];
+      for (let t = 0; t < seqLen; t++) {
+        const combined = new Float32Array(64);
+        combined.set(fwdOutputs[t], 0);
+        combined.set(bwdOutputs[t], 32);
+        out.push(combined);
+      }
+      return out;
+    }
+
+    function predictSequenceProbabilities(sequenceVectors) {
+      if (!gruModelWeights || sequenceVectors.length < 16) return null;
+      const seqLen = 16;
+      const x_seq = sequenceVectors.slice(-16);
+      const w = gruModelWeights;
+
+      // 1. Folded Conv1d + ReLU
+      const convOut = [];
+      for (let t = 0; t < seqLen; t++) {
+        const row = new Float32Array(16);
+        for (let c = 0; c < 16; c++) {
+          let val = w.b_conv[c];
+          for (let k = 0; k < 3; k++) {
+            const t_in = t + k - 1;
+            if (t_in >= 0 && t_in < seqLen) {
+              for (let inCh = 0; inCh < 8; inCh++) {
+                val += w.w_conv[c][inCh][k] * x_seq[t_in][inCh];
+              }
+            }
+          }
+          row[c] = Math.max(0, val);
+        }
+        convOut.push(row);
+      }
+
+      // 2. BiGRU Layer 0
+      const l0Out = runBiGruLayer(
+        convOut,
+        w.w_ih_l0, w.w_hh_l0, w.b_ih_l0, w.b_hh_l0,
+        w.w_ih_l0_rev, w.w_hh_l0_rev, w.b_ih_l0_rev, w.b_hh_l0_rev
+      );
+
+      // 3. BiGRU Layer 1
+      const l1Out = runBiGruLayer(
+        l0Out,
+        w.w_ih_l1, w.w_hh_l1, w.b_ih_l1, w.b_hh_l1,
+        w.w_ih_l1_rev, w.w_hh_l1_rev, w.b_ih_l1_rev, w.b_hh_l1_rev
+      );
+
+      const lastStep = l1Out[seqLen - 1];
+
+      // 4. FC layers
+      const fc0 = new Float32Array(32);
+      for (let i = 0; i < 32; i++) {
+        let sum = w.b_fc0[i];
+        for (let j = 0; j < 64; j++) sum += w.w_fc0[i][j] * lastStep[j];
+        fc0[i] = Math.max(0, sum);
+      }
+
+      const logits = new Float32Array(7);
+      for (let i = 0; i < 7; i++) {
+        let sum = w.b_fc2[i];
+        for (let j = 0; j < 32; j++) sum += w.w_fc2[i][j] * fc0[j];
+        logits[i] = sum;
+      }
+
+      // Softmax
+      const maxL = Math.max(...logits);
+      const exps = logits.map(v => Math.exp(v - maxL));
+      const sumExps = exps.reduce((a, b) => a + b, 0);
+      const probs = exps.map(v => v / sumExps);
+
+      return {
+        normal: probs[0],
+        sitting: probs[1],
+        gettingUp: probs[2],
+        intentionalLying: probs[3],
+        restingLying: probs[4],
+        suspectedFall: probs[5],
+        uncertain: probs[6],
+      };
+    }
+
+    function encodeFeatureVector(feat, metrics) {
+      const torsoAngle = feat.torsoAngleDeg;
+      const hipHeight = feat.relativeHipHeight;
+      const ar = feat.aspectRatio;
+      const lKnee = feat.leftKneeFlexionDeg;
+      const rKnee = feat.rightKneeFlexionDeg;
+      const downwardVel = metrics ? metrics.downwardHipVelocity : 0.0;
+      const angularVel = metrics ? metrics.angularVelocityDegS : 0.0;
+      const motion = metrics ? metrics.motionEnergy : 0.0;
+
+      return [
+        Math.min(1.0, Math.max(0.0, torsoAngle / 90.0)),
+        Math.min(1.0, Math.max(0.0, hipHeight)),
+        Math.min(2.5, Math.max(0.0, ar)) / 2.5,
+        Math.min(1.0, Math.max(0.0, lKnee / 180.0)),
+        Math.min(1.0, Math.max(0.0, rKnee / 180.0)),
+        Math.min(1.0, Math.max(-1.0, downwardVel)),
+        Math.min(1.0, Math.max(0.0, angularVel / 100.0)),
+        Math.min(1.0, Math.max(0.0, motion * 5.0)),
+      ];
+    }
+
+    // Exponential Moving Average filter on landmarks to eliminate sensor noise & jitter
+    let smoothedLandmarks = null;
+    function smoothLandmarks(rawLm) {
+      if (!smoothedLandmarks || smoothedLandmarks.length !== rawLm.length) {
+        smoothedLandmarks = rawLm.map(p => ({ x: p.x, y: p.y, z: p.z, visibility: p.visibility }));
+        return smoothedLandmarks;
+      }
+      const alpha = 0.65;
+      for (let i = 0; i < rawLm.length; i++) {
+        smoothedLandmarks[i].x += alpha * (rawLm[i].x - smoothedLandmarks[i].x);
+        smoothedLandmarks[i].y += alpha * (rawLm[i].y - smoothedLandmarks[i].y);
+        smoothedLandmarks[i].z += alpha * (rawLm[i].z - smoothedLandmarks[i].z);
+        smoothedLandmarks[i].visibility = rawLm[i].visibility;
+      }
+      return smoothedLandmarks;
+    }
+
     // 1. Geometric Features Extractor (Exact matching landmarks.py)
     function extractGeometricFeatures(lm) {
       if (!lm || lm.length < 29) return null;
@@ -309,7 +493,7 @@
 
     // 3. Sliding Window Kinematic Feature Buffer (Exact matching temporal_features.py)
     class KinematicBuffer {
-      constructor(maxLen = 25) {
+      constructor(maxLen = 30) {
         this.maxLen = maxLen;
         this.frames = [];
       }
@@ -337,13 +521,20 @@
         const prev = frames[frames.length - 2];
         const dt = Math.max(1e-4, curr.timestamp - prev.timestamp);
 
-        // Instantaneous normalized vertical velocity
+        // Instantaneous vertical & angular velocity
         const downwardHipVel = (curr.relativeHipHeight - prev.relativeHipHeight) / dt;
         const angularVel = Math.abs(curr.torsoAngleDeg - prev.torsoAngleDeg) / dt;
 
-        // Windowed peak velocities across rolling observations
-        let peakV = downwardHipVel;
-        let peakW = angularVel;
+        // Windowed velocity across 5-6 frames (~0.2s - 0.25s) matching Python temporal_features.py
+        const lookback = Math.max(0, frames.length - 6);
+        const baseFrame = frames[lookback];
+        const dtWindow = Math.max(1e-4, curr.timestamp - baseFrame.timestamp);
+        const windowDownwardVel = (curr.relativeHipHeight - baseFrame.relativeHipHeight) / dtWindow;
+        const windowAngularVel = Math.abs(curr.torsoAngleDeg - baseFrame.torsoAngleDeg) / dtWindow;
+
+        // Robust peak velocities across rolling window
+        let peakV = Math.max(0, downwardHipVel, windowDownwardVel);
+        let peakW = Math.max(angularVel, windowAngularVel);
         let peakA = 0.0;
 
         for (let i = 1; i < frames.length; i++) {
@@ -355,7 +546,7 @@
           if (stepW > peakW) peakW = stepW;
         }
 
-        // Acceleration
+        // Acceleration over 3 frames
         if (frames.length >= 3) {
           const prev2 = frames[frames.length - 3];
           const dtPrev = Math.max(1e-4, prev.timestamp - prev2.timestamp);
@@ -363,7 +554,7 @@
           peakA = Math.max(0.0, (downwardHipVel - prevVel) / dt);
         }
 
-        // Trajectory smoothness (variance across window)
+        // Trajectory smoothness (normalized variance)
         const velSamples = [];
         for (let i = 1; i < frames.length; i++) {
           const fa = frames[i - 1], fb = frames[i];
@@ -372,7 +563,7 @@
         }
         const meanVel = velSamples.reduce((a, b) => a + b, 0) / velSamples.length;
         const variance = velSamples.reduce((s, v) => s + (v - meanVel) ** 2, 0) / velSamples.length;
-        const smoothness = 1.0 / (1.0 + variance * 100.0);
+        const smoothness = 1.0 / (1.0 + variance * 40.0);
 
         return {
           timestamp: curr.timestamp,
@@ -387,17 +578,27 @@
       }
     }
 
-    // 4. Dynamic Activity Classifier (Exact matching activity_classifier.py)
+    // 4. Dynamic Activity Classifier (Integrating Trained LE2I GRU Model)
     class ActivityClassifier {
       constructor() {
         this.priorPosture = 'STANDING';
         this.priorPostureTime = 0.0;
         this.lyingStartTime = null;
         this.lastState = 'NORMAL_MOVEMENT';
+        this.sequenceBuffer = [];
       }
 
-      evaluate(posture, postureConf, metrics, timestamp) {
+      evaluate(posture, postureConf, metrics, timestamp, feat) {
         const now = timestamp;
+
+        // Maintain sequence buffer of 8-dim feature vectors for the GRU model
+        if (feat && metrics) {
+          const vec = encodeFeatureVector(feat, metrics);
+          this.sequenceBuffer.push(vec);
+          if (this.sequenceBuffer.length > 16) {
+            this.sequenceBuffer.shift();
+          }
+        }
 
         if (posture === 'STANDING' || posture === 'SITTING') {
           this.priorPosture = posture;
@@ -452,82 +653,109 @@
           }
           const lyingDuration = Math.max(0.0, now - this.lyingStartTime);
 
-          // Confirmation window: must stay lying for at least 0.30s
-          if (lyingDuration < 0.30) {
+          // Confirmation window: must stay lying for at least 0.35s
+          if (lyingDuration < 0.35) {
             return {
               state: 'NORMAL_MOVEMENT',
               confidence: postureConf,
-              reason: `Confirming lying posture (${lyingDuration.toFixed(2)}s < 0.30s)`,
+              reason: `Confirming lying posture (${lyingDuration.toFixed(2)}s < 0.35s)`,
               isFall: false
             };
           }
 
-          // Prolonged resting or sleeping on surface
-          if (lyingDuration >= 2.0 && metrics.motionEnergy < 0.04 && this.lastState !== 'SUSPECTED_FALL') {
+          // Prolonged resting or sleeping on surface (>= 1.5s with low motion)
+          if (lyingDuration >= 1.5 && metrics.motionEnergy < 0.05 && this.lastState !== 'SUSPECTED_FALL') {
             this.lastState = 'LYING_OR_SLEEPING';
             return {
               state: 'LYING_OR_SLEEPING',
               confidence: postureConf,
-              reason: `Resting/sleeping on surface (lying: ${lyingDuration.toFixed(1)}s)`,
+              reason: `Resting / sleeping on surface (lying: ${lyingDuration.toFixed(1)}s)`,
               isFall: false
             };
           }
 
-          // Slow intentional settling down (transition > 2.2s)
+          // Initial state safeguard: If user opened the camera while already lying down
           const timeSincePrior = now - this.priorPostureTime;
-          if (timeSincePrior > 2.2) {
-            this.lastState = 'INTENTIONAL_LYING_DOWN';
+          if (this.priorPostureTime === 0.0 || timeSincePrior > 2.5) {
+            this.lastState = 'LYING_OR_SLEEPING';
             return {
-              state: 'INTENTIONAL_LYING_DOWN',
-              confidence: 0.88,
-              reason: `Slow controlled settling down (${timeSincePrior.toFixed(1)}s > 2.2s)`,
+              state: 'LYING_OR_SLEEPING',
+              confidence: 0.92,
+              reason: `Stable resting posture (no preceding fall transition)`,
               isFall: false
             };
           }
 
+          // 1. NEURAL SEQUENCE MODEL DISCRIMINATOR (Trained on LE2I dataset)
+          const neuralProbs = predictSequenceProbabilities(this.sequenceBuffer);
+          if (neuralProbs) {
+            const fallProb = neuralProbs.suspectedFall;
+            const intentionalLyingProb = neuralProbs.intentionalLying;
+            const restingLyingProb = neuralProbs.restingLying;
+            const totalLyingProb = intentionalLyingProb + restingLyingProb;
+
+            // Verified Intentional Lying: model recognizes normal gentle lying down
+            if (totalLyingProb >= 0.35 && totalLyingProb >= fallProb) {
+              this.lastState = 'INTENTIONAL_LYING_DOWN';
+              return {
+                state: 'INTENTIONAL_LYING_DOWN',
+                confidence: Math.round(totalLyingProb * 100) / 100,
+                reason: `AI Sequence Model verified intentional lying (p_lying: ${(totalLyingProb * 100).toFixed(0)}%, p_fall: ${(fallProb * 100).toFixed(0)}%)`,
+                isFall: false
+              };
+            }
+
+            // Real Accidental Fall: model identifies collapse signature AND physical descent occurred
+            if (fallProb >= 0.50 && fallProb > totalLyingProb && (metrics.peakDownwardVelocity >= 0.22 || metrics.peakAngularVelocity >= 35.0)) {
+              this.lastState = 'SUSPECTED_FALL';
+              return {
+                state: 'SUSPECTED_FALL',
+                confidence: Math.round(fallProb * 100) / 100,
+                reason: `AI Model collapse signature: p_fall=${(fallProb * 100).toFixed(0)}%, vel=${metrics.peakDownwardVelocity.toFixed(2)}, ang=${metrics.peakAngularVelocity.toFixed(1)}°/s`,
+                isFall: true
+              };
+            }
+          }
+
+          // 2. BIOMECHANICAL KINEMATIC FALL EVALUATION (Rule-based safeguard)
           const peakV = metrics.peakDownwardVelocity;
           const peakW = metrics.peakAngularVelocity;
           const peakA = metrics.peakDownwardAcceleration;
-          const isRoughDescent = metrics.trajectorySmoothness <= 0.40;
+          const isSeatedRecline = (this.priorPosture === 'SITTING' && peakV < 0.35);
 
-          // Seated recline protection: if previously sitting and peakV < 0.38, it's safe intentional reclining!
-          const isSeatedRecline = (this.priorPosture === 'SITTING' && peakV < 0.38);
-
-          // Intentional smooth gentle recline
-          if (metrics.trajectorySmoothness >= 0.50 && peakV < 0.28) {
+          // Controlled gentle recline without impact shock
+          if (isSeatedRecline || (peakV < 0.24 && peakA < 0.22 && peakW < 50.0)) {
             this.lastState = 'INTENTIONAL_LYING_DOWN';
             return {
               state: 'INTENTIONAL_LYING_DOWN',
-              confidence: 0.89,
-              reason: `Gentle controlled recline (smoothness: ${metrics.trajectorySmoothness.toFixed(2)})`,
+              confidence: 0.90,
+              reason: `Gentle controlled descent without impact shock (vel: ${peakV.toFixed(2)}, impact: ${peakA.toFixed(2)})`,
               isFall: false
             };
           }
 
-          // Exact fall dynamics criteria
-          const isFallDynamics = !isSeatedRecline && (
-            (peakV >= 0.45 && peakW >= 35.0) ||
-            (peakV >= 0.14 && peakW >= 35.0 && isRoughDescent) ||
-            (peakV >= 0.38 && isRoughDescent)
+          // True accidental collapse requires rapid vertical free-fall or sudden tumbling impact
+          const isAccidentalCollapse = (
+            (peakV >= 0.38 && peakW >= 40.0 && peakA >= 0.25) ||
+            (peakV >= 0.50 && peakA >= 0.30)
           );
 
-          if (isFallDynamics) {
+          if (isAccidentalCollapse) {
             this.lastState = 'SUSPECTED_FALL';
-            const overallConf = Math.min(0.98, Math.max(0.75, (peakV / 0.14) * 0.5 + (peakW / 35.0) * 0.5));
             return {
               state: 'SUSPECTED_FALL',
-              confidence: overallConf,
-              reason: `Abrupt kinetic collapse: peak vel=${peakV.toFixed(2)} norm/s, peak ang=${peakW.toFixed(1)}°/s, accel=${peakA.toFixed(2)}`,
+              confidence: 0.92,
+              reason: `Biomechanical kinetic collapse: vel=${peakV.toFixed(2)}, ang=${peakW.toFixed(1)}°/s, impact=${peakA.toFixed(2)}`,
               isFall: true
             };
           }
 
-          // Otherwise, safe intentional lying down
+          // Default for lying down safely
           this.lastState = 'INTENTIONAL_LYING_DOWN';
           return {
             state: 'INTENTIONAL_LYING_DOWN',
-            confidence: 0.85,
-            reason: 'Controlled descent without gravitational collapse dynamics',
+            confidence: 0.88,
+            reason: 'Normal lying posture without kinetic collapse dynamics',
             isFall: false
           };
         }
@@ -541,7 +769,7 @@
       }
     }
 
-    const kinematicBuffer = new KinematicBuffer(25);
+    const kinematicBuffer = new KinematicBuffer(30);
     const activityClassifier = new ActivityClassifier();
 
     let currentPosture = 'STANDING';
@@ -720,7 +948,8 @@
         return;
       }
 
-      const lm = results.poseLandmarks.map(p => ({ x: 1 - p.x, y: p.y, z: p.z, visibility: p.visibility }));
+      const rawLm = results.poseLandmarks.map(p => ({ x: 1 - p.x, y: p.y, z: p.z, visibility: p.visibility }));
+      const lm = smoothLandmarks(rawLm);
       processKinematics(lm, canvas.width, canvas.height);
 
       if (showLandmarks) {
@@ -748,8 +977,8 @@
       // 2. Temporal Kinematic Metrics Buffer
       const metrics = kinematicBuffer.add(now, feat);
 
-      // 3. Multi-State Dynamic Activity Classification
-      const actRes = activityClassifier.evaluate(currentPosture, currentConfidence, metrics, now);
+      // 3. Multi-State Dynamic Activity Classification (Trained LE2I GRU + Biomechanics)
+      const actRes = activityClassifier.evaluate(currentPosture, currentConfidence, metrics, now, feat);
 
       // Update right sidebar telemetry panel
       const actLabel = document.getElementById('lblActivityState');
