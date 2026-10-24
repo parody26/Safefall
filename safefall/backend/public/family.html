@@ -533,6 +533,13 @@
       return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
+    // Instant cross-tab sync when feed is cleared or updated from Monitor app
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'safefall_incidents_store') {
+        refreshData();
+      }
+    });
+
     // Polling every 2.5s
     refreshData();
     setInterval(refreshData, 2500);

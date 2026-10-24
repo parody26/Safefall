@@ -181,6 +181,10 @@
           <button id="btnHud" onclick="toggleHud()" class="w-full py-2 px-3 rounded bg-[#1E293B] hover:bg-[#334155] text-slate-300 text-xs font-bold transition">
             📊 Telemetry HUD: ON
           </button>
+          <button id="btnClearFeed" onclick="clearAllFeed()" class="w-full py-2 px-3 rounded bg-[#7F1D1D]/70 hover:bg-[#991B1B] text-rose-200 text-xs font-bold transition flex items-center justify-center space-x-1.5 border border-rose-800/50">
+            <span>🗑️</span>
+            <span>Clear All Feed & Incidents</span>
+          </button>
         </div>
       </div>
 
@@ -1358,6 +1362,69 @@
       showHud = !showHud;
       const btn = document.getElementById('btnHud');
       btn.innerText = `📊 Telemetry HUD: ${showHud ? 'ON' : 'OFF'}`;
+    }
+
+    async function clearAllFeed() {
+      const btn = document.getElementById('btnClearFeed');
+      const originalText = btn ? btn.innerHTML : '';
+      if (btn) {
+        btn.innerHTML = '<span>⏳</span><span>Clearing Feed...</span>';
+        btn.disabled = true;
+      }
+
+      // 1. Wipe local browser incidents store
+      try {
+        localStorage.setItem('safefall_incidents_store', JSON.stringify([]));
+      } catch(e) {}
+
+      // 2. Clear cloud backend incidents via DELETE API
+      try {
+        await fetch(`${API_BASE}/incidents`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch(e) {}
+
+      // 3. Immediately disable emergency banner and return to SYSTEM NORMAL
+      disableEmergencyBanner({ resolvedBy: 'System Admin', resolutionNote: 'Feed & incident history cleared' });
+
+      // 4. Reset internal states and rolling buffers
+      activeIncidentId = null;
+      incidentAcknowledgedHandled = false;
+      isFallSuspected = false;
+      isVoiceWindowActive = false;
+      if (typeof activityClassifier !== 'undefined' && activityClassifier.reset) {
+        activityClassifier.reset();
+      }
+      if (typeof kinematicBuffer !== 'undefined' && kinematicBuffer.frames) {
+        kinematicBuffer.frames = [];
+      }
+      smoothedLandmarks = null;
+
+      // 5. Update banner text
+      const bText = document.getElementById('bannerText');
+      if (bText) {
+        bText.innerText = 'SYSTEM NORMAL — All incident feeds & history cleared';
+      }
+
+      // 6. Broadcast storage event to any connected Family App tabs
+      try {
+        window.dispatchEvent(new StorageEvent('storage', {
+          key: 'safefall_incidents_store',
+          newValue: '[]'
+        }));
+      } catch(e) {}
+
+      // 7. Visual confirmation
+      if (btn) {
+        btn.innerHTML = '<span>✅</span><span>All Feed Cleared!</span>';
+        btn.className = 'w-full py-2 px-3 rounded bg-emerald-700/80 text-emerald-200 text-xs font-bold transition flex items-center justify-center space-x-1.5 border border-emerald-600';
+        setTimeout(() => {
+          btn.innerHTML = originalText || '<span>🗑️</span><span>Clear All Feed & Incidents</span>';
+          btn.className = 'w-full py-2 px-3 rounded bg-[#7F1D1D]/70 hover:bg-[#991B1B] text-rose-200 text-xs font-bold transition flex items-center justify-center space-x-1.5 border border-rose-800/50';
+          btn.disabled = false;
+        }, 2000);
+      }
     }
 
     // Skeleton drawing
